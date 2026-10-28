@@ -34,5 +34,7 @@ test("signed-out visitor - no llm call, gateway refuses anonymous calls", async 
   }, env.edge);
   expect(refused.status).toBe(401);
   expect(refused.type).toContain("application/problem+json");
-  expect(refused.body).toContain("unauthenticated");
+  // The type URI is the stable code of the problem (RFC 9457), not prose wording.
+  const problem = JSON.parse(refused.body) as { type: string };
+  expect(problem.type).toMatch(/\/problems\/unauthenticated$/);
 });
