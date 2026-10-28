@@ -1,114 +1,133 @@
-# synthwerk-e2e CI. "gate" is the required check of the ruleset "main: checks required".
-#   lint  Biome, tsc, the Playwright image guard
-#   e2e   the synthwerk-infra stack (main) plus stack/compose.e2e.yaml, then the
-#         journeys in the Playwright image (pinned by digest, --ipc=host, no apt)
+# Fleet library CI (fleet-standard templates/library/public), fleet-workflows v0.0.2, stack node.
+#   lint   Biome, tsc, actionlint, zizmor
+#   unit   the Playwright image guard (node --test); no library code, so no coverage floor
+#   e2e    dispatch only (CI-E2E-01): the synthwerk-infra stack (main) plus
+#          stack/compose.e2e.yaml, then the journeys in the Playwright image (pinned by digest)
+#   build  nothing to build: the journeys run from source (fleet.yml CI-BUILD-04)
+# Required check of the ruleset "main: checks required": conclusion.
 name: ci
 
 on:
   pull_request:
-  push:
-    branches: [main]
-  schedule:
-    - cron: "17 3 * * *" # nightly: catches a red infra main
+    branches: [develop, main]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
+    inputs:
+      e2e:
+        description: Run the e2e stage
+        type: boolean
+        default: false
 
 permissions: {}
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 defaults:
   run:
-    shell: bash --noprofile --norc -euo pipefail {0}
+    shell: bash
+
+concurrency:
+  group: ci-${{ github.event.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  lint:
+  changes:
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     permissions:
       contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ github.event_name != 'pull_request' || steps.filter.outputs.code == 'true' }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Detect code changes
+        id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
         with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - name: Playwright image guard
-        run: pnpm test:guard
+          predicate-quantifier: every
+          filters: |
+            code:
+              - '!**/*.md'
+              - '!docs/**'
+              - '!LICENSE'
+              - '!.github/ISSUE_TEMPLATE/**'
+
+  lint:
+    needs: changes
+    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' }}
+    permissions:
+      contents: read
+    uses: VelimirMueller/fleet-workflows/.github/workflows/_ci-lint.yml@v0.0.2
+    with:
+      stack: node
+
+  unit:
+    needs: [changes, lint]
+    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' }}
+    permissions:
+      contents: read
+    uses: VelimirMueller/fleet-workflows/.github/workflows/_ci-unit.yml@v0.0.2
+    with:
+      stack: node
+      command: pnpm test:guard
+      # The guard reads files; there is no library code to cover (fleet.yml CI-UNIT-03).
+      coverage-floor: 0
 
   e2e:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    needs: [changes, unit]
+    if: ${{ !failure() && !cancelled() && github.event_name == 'workflow_dispatch' && inputs.e2e }}
     permissions:
       contents: read
-    env:
-      E2E_ZITADEL_API_PORT: "8090"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Check out synthwerk-infra (main)
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: VelimirMueller/synthwerk-infra
-          path: infra
-          persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Start the stack (infra + e2e overlay)
-        timeout-minutes: 10
-        run: |
-          infra/scripts/init-env.sh
-          docker compose --project-directory infra -f infra/compose.yaml -f stack/compose.e2e.yaml \
-            up --build --wait --wait-timeout 400
-      - name: Copy the local Zitadel secrets out of the stack
-        run: scripts/stack-secrets.sh synthwerk
-      - name: Journeys (Chromium, Playwright image)
-        timeout-minutes: 15
-        run: |
-          docker run --rm --network host --ipc=host -e CI=1 \
-            -v "$PWD:/work" -w /work --user "$(id -u):$(id -g)" -e HOME=/tmp \
-            mcr.microsoft.com/playwright:v1.64.1-noble@sha256:7852dc5a7d72f5fe458a597d690f6c42fbc8e9e26ddfa95f8e6ef552558d9bbf \
-            node_modules/.bin/playwright test
-      - name: Report
-        if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: playwright-report
-          path: |
-            playwright-report/
-            test-results/
-          retention-days: 7
-      - name: Stack logs on failure
-        if: failure()
-        run: docker compose --project-directory infra -f infra/compose.yaml -f stack/compose.e2e.yaml logs --no-color --tail 150
-      - name: Stop the stack
-        if: always()
-        run: docker compose --project-directory infra -f infra/compose.yaml -f stack/compose.e2e.yaml down --volumes
+    uses: VelimirMueller/fleet-workflows/.github/workflows/_ci-e2e.yml@v0.0.2
+    with:
+      stack: node
+      # Bring up the infra stack with the e2e overlay, copy the Zitadel secrets out, then run
+      # the journeys in the pinned Playwright image. JUnit goes to e2e-junit.xml (CI-E2E-05).
+      command: |
+        export E2E_ZITADEL_API_PORT=8090
+        git clone --depth 1 https://github.com/VelimirMueller/synthwerk-infra.git infra
+        infra/scripts/init-env.sh
+        compose() { docker compose --project-directory infra -f infra/compose.yaml -f stack/compose.e2e.yaml "$@"; }
+        trap 'status=$?; if [ "$status" -ne 0 ]; then compose logs --no-color --tail 150; fi; compose down --volumes; exit "$status"' EXIT
+        compose up --build --wait --wait-timeout 400
+        scripts/stack-secrets.sh synthwerk
+        docker run --rm --network host --ipc=host -e CI=1 \
+          -e PLAYWRIGHT_JUNIT_OUTPUT_FILE=e2e-junit.xml \
+          -v "$PWD:/work" -w /work --user "$(id -u):$(id -g)" -e HOME=/tmp \
+          mcr.microsoft.com/playwright:v1.64.1-noble@sha256:7852dc5a7d72f5fe458a597d690f6c42fbc8e9e26ddfa95f8e6ef552558d9bbf \
+          node_modules/.bin/playwright test --reporter=list,junit
 
-  gate:
+  build:
+    needs: [changes, e2e]
+    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' }}
+    permissions:
+      contents: read
+    uses: VelimirMueller/fleet-workflows/.github/workflows/_ci-build.yml@v0.0.2
+    with:
+      stack: generic
+      command: echo "Nothing to build, the journeys run from source (fleet.yml exception CI-BUILD-04)."
+      pack: false
+
+  conclusion:
+    needs: [changes, lint, unit, e2e, build]
     if: always()
-    needs: [lint, e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}
     steps:
-      - name: All jobs passed
+      - name: Fail when a job failed or a required stage was skipped
         env:
+          CODE: ${{ needs.changes.outputs.code }}
           RESULTS: ${{ join(needs.*.result, ' ') }}
+          LINT: ${{ needs.lint.result }}
+          UNIT: ${{ needs.unit.result }}
+          BUILD: ${{ needs.build.result }}
         run: |
-          echo "Results: $RESULTS"
-          for result in $RESULTS; do
-            [[ "$result" == "success" ]] || exit 1
+          for r in $RESULTS; do
+            case "$r" in success|skipped) ;; *) echo "::error::a job ended as $r"; exit 1 ;; esac
           done
+          if [ "$CODE" = "true" ]; then
+            for r in "$LINT" "$UNIT" "$BUILD"; do
+              [ "$r" = "success" ] || { echo "::error::a required stage did not run"; exit 1; }
+            done
+          fi
