@@ -24,6 +24,9 @@ defaults:
   run:
     shell: bash
 
+# A PR run has its own group (the PR number). A dispatch shares the group of its branch, so only
+# a newer dispatch of the same branch cancels it: the newest run wins (CI-COST-06).
+# `shell: bash` runs `bash --noprofile --norc -eo pipefail {0}`.
 concurrency:
   group: ci-${{ github.event.number || github.ref }}
   cancel-in-progress: true
