@@ -5,9 +5,35 @@
 # Test setup (create and invite users) talks to the Zitadel API directly on
 # 127.0.0.1:${E2E_ZITADEL_API_PORT:-8090}. Through the edge the WAF blocks admin JSON
 # (CRS 930120 on the user profile body). Browsers still go through the edge and the WAF.
+#
+# The chat journeys need one more step after the bootstrap (synthwerk#36): the llm
+# gateway must accept the studio project id as the token audience.
+#   scripts/stack-secrets.sh synthwerk
+#   SYNTHWERK_LLM_OIDC_AUDIENCE="$(jq -r .project_id .stack/studio-client.json)" \
+#     docker compose -f ../synthwerk-infra/compose.yaml -f stack/compose.e2e.yaml up -d --wait llm
+# The ci.yml e2e stage runs the same three commands.
 services:
   zitadel:
     ports:
       - "127.0.0.1:${E2E_ZITADEL_API_PORT:-8090}:8080"
-    # "edge" only to publish the port above; the other networks stay as in infra.
-    networks: [edge]
+    # "edge" to publish the port above; app gets the auth.localhost alias so the
+    # services resolve the public issuer URL (infra routes it by Host on the edge,
+    # which only browsers can use). data and zitadel-hooks stay as in infra.
+    networks:
+      edge: {}
+      app:
+        aliases: [auth.localhost]
+
+  # The chat journeys sign in for real (passkey -> Zitadel -> JWT), so the gateway
+  # must trust the real issuer even when infra/.env still points it at the stack
+  # test issuer (tests/stack/issuer.sh setup). The audience is the studio project id
+  # until synthwerk#28/#30 mint the API audience on real tokens. The fake provider
+  # echoes the message one word per piece, so the journeys assert on the answer
+  # without a model; the delay spreads the pieces over time.
+  llm:
+    environment:
+      SYNTHWERK_LLM_OIDC_ISSUER: http://auth.localhost:8080
+      SYNTHWERK_LLM_JWKS_URL: ""
+      SYNTHWERK_LLM_OIDC_AUDIENCE: ${SYNTHWERK_LLM_OIDC_AUDIENCE:-synthwerk-api}
+      SYNTHWERK_LLM_PROVIDER: ${SYNTHWERK_LLM_PROVIDER:-fake}
+      SYNTHWERK_LLM_FAKE_DELAY: ${SYNTHWERK_LLM_FAKE_DELAY:-100ms}

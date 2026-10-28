@@ -97,6 +97,9 @@ jobs:
         trap 'status=$?; if [ "$status" -ne 0 ]; then compose logs --no-color --tail 150; fi; compose down --volumes; exit "$status"' EXIT
         compose up --build --wait --wait-timeout 400
         scripts/stack-secrets.sh synthwerk
+        # Audience bridge until synthwerk#28/#30: the chat journeys sign in for real,
+        # so the llm gateway must accept the studio project id as the token audience.
+        SYNTHWERK_LLM_OIDC_AUDIENCE="$(jq -r .project_id .stack/studio-client.json)" compose up -d --wait llm
         docker run --rm --network host --ipc=host -e CI=1 \
           -e PLAYWRIGHT_JUNIT_OUTPUT_FILE=e2e-junit.xml \
           -v "$PWD:/work" -w /work --user "$(id -u):$(id -g)" -e HOME=/tmp \
