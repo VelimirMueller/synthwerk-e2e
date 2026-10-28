@@ -1,0 +1,24 @@
+# fleet.yml: tier and visibility of this repo (STANDARD.md). Exceptions: docs/rollout.md.
+# synthwerk-e2e holds the end-to-end journeys of the Synthwerk stack. It deploys nothing and
+# publishes nothing, so it is a library-tier repo.
+tier: library
+visibility: public
+exceptions:
+  - rule: CI-UNIT-03
+    value:
+      lines: 0
+      branches: 0
+    reason: The unit stage runs only the Playwright image guard, which reads repo files; the repo has no library code to cover.
+  - rule: CI-BUILD-04
+    value:
+      pack: false
+    reason: The journeys run from source and the package is private, so there is nothing to build or pack.
+  - rule: GOV-RS-02
+    value: no develop branch
+    reason: The repo is trunk-only on main until the control repo creates develop (fleet-standard#7).
+  - rule: GOV-RS-04
+    value: "default-branch ruleset 'main: checks required' (26030216) with context conclusion"
+    reason: The main ruleset predates the standard; its required context moved from gate to conclusion on 2026-10-28, and the control repo replaces the whole ruleset (fleet-standard#7).
+  - rule: GOV-ENV-10
+    value: no release environment
+    reason: The repo publishes no release, so it has no release environment.
