@@ -73,6 +73,9 @@ jobs:
       # The guard reads files; there is no library code to cover (fleet.yml CI-UNIT-03).
       coverage-floor: 0
 
+  # Fleet rule CI-E2E-01: e2e never runs on a PR, a push or a schedule; only by dispatch of
+  # this workflow with e2e: true (or in a promotion preflight). The journeys are the product of
+  # this repo, so run them by hand before a merge that changes them: Actions > ci > Run workflow.
   e2e:
     needs: [changes, unit]
     if: ${{ !failure() && !cancelled() && github.event_name == 'workflow_dispatch' && inputs.e2e }}
@@ -85,7 +88,7 @@ jobs:
       # the journeys in the pinned Playwright image. JUnit goes to e2e-junit.xml (CI-E2E-05).
       command: |
         export E2E_ZITADEL_API_PORT=8090
-        git clone --depth 1 https://github.com/VelimirMueller/synthwerk-infra.git infra
+        git clone --depth 1 --branch main https://github.com/VelimirMueller/synthwerk-infra.git infra
         infra/scripts/init-env.sh
         compose() { docker compose --project-directory infra -f infra/compose.yaml -f stack/compose.e2e.yaml "$@"; }
         trap 'status=$?; if [ "$status" -ne 0 ]; then compose logs --no-color --tail 150; fi; compose down --volumes; exit "$status"' EXIT
@@ -108,6 +111,8 @@ jobs:
       command: echo "Nothing to build, the journeys run from source (fleet.yml exception CI-BUILD-04)."
       pack: false
 
+  # A skipped job counts as success only when the stage is not required: when code changed,
+  # lint, unit and build must be success (second loop). e2e is skipped unless dispatched.
   conclusion:
     needs: [changes, lint, unit, e2e, build]
     if: always()
