@@ -112,7 +112,8 @@ jobs:
       pack: false
 
   # A skipped job counts as success only when the stage is not required: when code changed,
-  # lint, unit and build must be success (second loop). e2e is skipped unless dispatched.
+  # lint, unit and build must be success; a dispatch with e2e: true also needs e2e success.
+  # A docs-only PR skips the stages on purpose (CI-COST-16).
   conclusion:
     needs: [changes, lint, unit, e2e, build]
     if: always()
@@ -127,6 +128,8 @@ jobs:
           LINT: ${{ needs.lint.result }}
           UNIT: ${{ needs.unit.result }}
           BUILD: ${{ needs.build.result }}
+          E2E: ${{ needs.e2e.result }}
+          WANT_E2E: ${{ github.event_name == 'workflow_dispatch' && inputs.e2e }}
         run: |
           for r in $RESULTS; do
             case "$r" in success|skipped) ;; *) echo "::error::a job ended as $r"; exit 1 ;; esac
@@ -135,4 +138,7 @@ jobs:
             for r in "$LINT" "$UNIT" "$BUILD"; do
               [ "$r" = "success" ] || { echo "::error::a required stage did not run"; exit 1; }
             done
+          fi
+          if [ "$WANT_E2E" = "true" ] && [ "$E2E" != "success" ]; then
+            echo "::error::e2e was requested but ended as $E2E"; exit 1
           fi
