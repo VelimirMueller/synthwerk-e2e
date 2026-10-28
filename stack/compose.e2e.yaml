@@ -16,8 +16,13 @@ services:
   zitadel:
     ports:
       - "127.0.0.1:${E2E_ZITADEL_API_PORT:-8090}:8080"
-    # "edge" only to publish the port above; the other networks stay as in infra.
-    networks: [edge]
+    # "edge" to publish the port above; app gets the auth.localhost alias so the
+    # services resolve the public issuer URL (infra routes it by Host on the edge,
+    # which only browsers can use). data and zitadel-hooks stay as in infra.
+    networks:
+      edge: {}
+      app:
+        aliases: [auth.localhost]
 
   # The chat journeys sign in for real (passkey -> Zitadel -> JWT), so the gateway
   # must trust the real issuer even when infra/.env still points it at the stack
