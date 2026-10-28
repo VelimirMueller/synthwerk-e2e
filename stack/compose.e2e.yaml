@@ -1,0 +1,13 @@
+# Overlay on synthwerk-infra/compose.yaml for the e2e runs (local and ci only).
+#
+#   docker compose -f ../synthwerk-infra/compose.yaml -f stack/compose.e2e.yaml up --wait
+#
+# Test setup (create and invite users) talks to the Zitadel API directly on
+# 127.0.0.1:${E2E_ZITADEL_API_PORT:-8090}. Through the edge the WAF blocks admin JSON
+# (CRS 930120 on the user profile body). Browsers still go through the edge and the WAF.
+services:
+  zitadel:
+    ports:
+      - "127.0.0.1:${E2E_ZITADEL_API_PORT:-8090}:8080"
+    # "edge" only to publish the port above; the other networks stay as in infra.
+    networks: [edge]

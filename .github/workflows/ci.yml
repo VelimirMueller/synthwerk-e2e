@@ -1,0 +1,114 @@
+# synthwerk-e2e CI. "gate" is the required check of the ruleset "main: checks required".
+#   lint  Biome, tsc, the Playwright image guard
+#   e2e   the synthwerk-infra stack (main) plus stack/compose.e2e.yaml, then the
+#         journeys in the Playwright image (pinned by digest, --ipc=host, no apt)
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 3 * * *" # nightly: catches a red infra main
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash --noprofile --norc -euo pipefail {0}
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - name: Playwright image guard
+        run: pnpm test:guard
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      E2E_ZITADEL_API_PORT: "8090"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check out synthwerk-infra (main)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: VelimirMueller/synthwerk-infra
+          path: infra
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Start the stack (infra + e2e overlay)
+        timeout-minutes: 10
+        run: |
+          infra/scripts/init-env.sh
+          docker compose --project-directory infra -f infra/compose.yaml -f stack/compose.e2e.yaml \
+            up --build --wait --wait-timeout 400
+      - name: Copy the local Zitadel secrets out of the stack
+        run: scripts/stack-secrets.sh synthwerk
+      - name: Journeys (Chromium, Playwright image)
+        timeout-minutes: 15
+        run: |
+          docker run --rm --network host --ipc=host -e CI=1 \
+            -v "$PWD:/work" -w /work --user "$(id -u):$(id -g)" -e HOME=/tmp \
+            mcr.microsoft.com/playwright:v1.64.1-noble@sha256:7852dc5a7d72f5fe458a597d690f6c42fbc8e9e26ddfa95f8e6ef552558d9bbf \
+            node_modules/.bin/playwright test
+      - name: Report
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+      - name: Stack logs on failure
+        if: failure()
+        run: docker compose --project-directory infra -f infra/compose.yaml -f stack/compose.e2e.yaml logs --no-color --tail 150
+      - name: Stop the stack
+        if: always()
+        run: docker compose --project-directory infra -f infra/compose.yaml -f stack/compose.e2e.yaml down --volumes
+
+  gate:
+    if: always()
+    needs: [lint, e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: All jobs passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Results: $RESULTS"
+          for result in $RESULTS; do
+            [[ "$result" == "success" ]] || exit 1
+          done
