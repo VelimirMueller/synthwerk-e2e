@@ -1,0 +1,25 @@
+{
+  "name": "synthwerk-e2e",
+  "private": true,
+  "version": "0.1.0",
+  "description": "End-to-end journeys for the Synthwerk stack (Playwright, Chromium).",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@10.18.3",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "playwright test",
+    "test:guard": "node --test \"tests/support/*.test.ts\"",
+    "stack:secrets": "bash scripts/stack-secrets.sh",
+    "lint": "biome check .",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@playwright/test": "1.64.1",
+    "@types/node": "^24.19.2",
+    "typescript": "5.9.3"
+  }
+}
