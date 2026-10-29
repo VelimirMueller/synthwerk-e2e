@@ -29,7 +29,10 @@ services:
   # test issuer (tests/stack/issuer.sh setup). The audience is the studio project id
   # until synthwerk#28/#30 mint the API audience on real tokens. The fake provider
   # echoes the message one word per piece, so the journeys assert on the answer
-  # without a model; the delay spreads the pieces over time.
+  # without a model; the delay spreads the pieces over time. The user quota fits one
+  # open stream (each send books about 1050 tokens before the model call), so the
+  # quota journey (synthwerk#33) can prove a second send is refused while the first
+  # one runs. The stream journey sends once per fresh user and stays under it.
   llm:
     environment:
       SYNTHWERK_LLM_OIDC_ISSUER: http://auth.localhost:8080
@@ -37,3 +40,4 @@ services:
       SYNTHWERK_LLM_OIDC_AUDIENCE: ${SYNTHWERK_LLM_OIDC_AUDIENCE:-synthwerk-api}
       SYNTHWERK_LLM_PROVIDER: ${SYNTHWERK_LLM_PROVIDER:-fake}
       SYNTHWERK_LLM_FAKE_DELAY: ${SYNTHWERK_LLM_FAKE_DELAY:-100ms}
+      SYNTHWERK_LLM_QUOTA_USER_TOKENS: ${SYNTHWERK_LLM_QUOTA_USER_TOKENS:-1500}

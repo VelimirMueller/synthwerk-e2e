@@ -10,6 +10,7 @@ Status: draft, milestone M2. Plain README until the brand kit render (vm-brand) 
 | `tests/auth/password-mfa.spec.ts` | An invited user with email and password must set up a second factor (TOTP) before the first token. |
 | `tests/auth/redirect-uri.spec.ts` | Zitadel never redirects to an unregistered `redirect_uri` (the edge WAF relies on it). |
 | `tests/chat/chat-stream.spec.ts` | A passkey user chats: the answer streams through the edge and the WAF piece by piece until `done` (synthwerk#36). |
+| `tests/chat/chat-quota.spec.ts` | A passkey user over quota gets 429 `quota_exhausted` with the typed `quota` body while the open stream still ends with `done` (synthwerk#33). |
 | `tests/chat/chat-anonymous.spec.ts` | A signed-out visitor triggers no llm call, and the gateway refuses an anonymous call with 401 `unauthenticated` (synthwerk#36). |
 Users come by invite only (D-51). The invite mail is read from Mailpit (D-49).
 The chat journeys run against the fake provider: it echoes the message one word per
