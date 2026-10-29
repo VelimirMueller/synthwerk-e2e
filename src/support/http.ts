@@ -1,6 +1,6 @@
 import { request as httpRequest } from "node:http";
 
-export type Reply = { status: number; body: string; json<T = unknown>(): T };
+export type Reply = { status: number; body: string; location?: string; json<T = unknown>(): T };
 
 /**
  * One HTTP call to a loopback URL with an explicit Host header. Node does not resolve
@@ -33,7 +33,14 @@ export function call(
         res.on("data", (c) => {
           data += c;
         });
-        res.on("end", () => resolve({ status: res.statusCode ?? 0, body: data, json: <T>() => JSON.parse(data) as T }));
+        res.on("end", () =>
+          resolve({
+            status: res.statusCode ?? 0,
+            body: data,
+            location: res.headers.location,
+            json: <T>() => JSON.parse(data) as T,
+          }),
+        );
       },
     );
     req.on("timeout", () => req.destroy(new Error(`timeout: ${opts.method ?? "GET"} ${u.pathname}`)));

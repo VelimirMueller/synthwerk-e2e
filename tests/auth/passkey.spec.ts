@@ -3,7 +3,7 @@ import { studioClient } from "../../src/config/env.ts";
 import { acceptInvite, enterLoginName } from "../../src/flows/invite.ts";
 import { claims, exchange, rolesIn, startCodeFlow } from "../../src/flows/oidc.ts";
 import { addAuthenticator, credentials, importCredentials } from "../../src/flows/passkey.ts";
-import { invite, orgID } from "../../src/zitadel/admin.ts";
+import { invite, mfaGateOn, orgID } from "../../src/zitadel/admin.ts";
 
 // synthwerk#28: an invited user (D-51) sets up a passkey and signs in with it.
 // The token carries the org id and the role (D-50). No MFA screen: a passkey with
@@ -45,5 +45,7 @@ test("passkey - invited user - enrols a passkey and signs in, token has org and 
   expect(at.aud).toContain(project_id);
   // The ID token proves the sign-in used MFA (a passkey with user verification).
   expect(claims(tokens.id_token).amr).toEqual(expect.arrayContaining(["mfa"]));
+  // With the server-side MFA gate (synthwerk#94) the access token passes RequireMFA.
+  if (await mfaGateOn()) expect(at.amr).toEqual(expect.arrayContaining(["user", "mfa"]));
   await ctx.close();
 });
