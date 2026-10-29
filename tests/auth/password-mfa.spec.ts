@@ -3,7 +3,7 @@ import { studioClient } from "../../src/config/env.ts";
 import { acceptInvite, enterLoginName } from "../../src/flows/invite.ts";
 import { claims, exchange, rolesIn, startCodeFlow } from "../../src/flows/oidc.ts";
 import { totp } from "../../src/support/totp.ts";
-import { invite, orgID } from "../../src/zitadel/admin.ts";
+import { invite, mfaGateOn, orgID } from "../../src/zitadel/admin.ts";
 
 // synthwerk#28: an invited user (D-51) who picks email and password must set up a
 // second factor before the first token (Force MFA, D-47). The test enrols TOTP.
@@ -64,9 +64,10 @@ test("email - invited user with password - must set up MFA before the first toke
   expect(at.sub).toBe(user.userID);
   expect(at["urn:zitadel:iam:user:resourceowner:id"]).toBe(demo);
   expect(rolesIn(at, demo)).toEqual(["member"]);
-  // Zitadel puts no amr into the access token (ADR-0002 in synthwerk-infra); the ID
-  // token shows the second factor of this sign-in.
-  expect(at.amr).toBeUndefined();
+  // The ID token shows the second factor of this sign-in. The access token carries
+  // amr only with the server-side MFA gate (synthwerk#94); kit/auth RequireMFA reads it.
   expect(claims(tokens.id_token).amr).toEqual(expect.arrayContaining(["pwd", "otp", "mfa"]));
+  if (await mfaGateOn()) expect(at.amr).toEqual(expect.arrayContaining(["pwd", "otp", "mfa"]));
+  else expect(at.amr).toBeUndefined();
   await ctx.close();
 });

@@ -8,6 +8,7 @@ Status: draft, milestone M2. Plain README until the brand kit render (vm-brand) 
 |---|---|
 | `tests/auth/passkey.spec.ts` | An invited user sets up a passkey (virtual WebAuthn authenticator) and signs in with it. No MFA screen. The token carries org id and role. |
 | `tests/auth/password-mfa.spec.ts` | An invited user with email and password must set up a second factor (TOTP) before the first token. |
+| `tests/auth/mfa-gate.spec.ts` | A password-only sign-in through the Session API gets no token; with TOTP the access token carries `amr` with `mfa` (synthwerk#94, needs the infra MFA gate on). |
 | `tests/auth/redirect-uri.spec.ts` | Zitadel never redirects to an unregistered `redirect_uri` (the edge WAF relies on it). |
 | `tests/chat/chat-stream.spec.ts` | A passkey user chats: the answer streams through the edge and the WAF piece by piece until `done` (synthwerk#36). |
 | `tests/chat/chat-quota.spec.ts` | A passkey user over quota gets 429 `quota_exhausted` with the typed `quota` body while the open stream still ends with `done` (synthwerk#33). |
@@ -24,7 +25,7 @@ docker compose -f compose.yaml -f ../synthwerk-e2e/stack/compose.e2e.yaml up --b
 cd ../synthwerk-e2e
 pnpm install
 pnpm exec playwright install chromium
-pnpm stack:secrets          # copies the local IAM owner PAT and studio client to .stack/
+pnpm stack:secrets          # copies the local IAM owner PAT, login-client PAT and studio client to .stack/
 # 3. The chat journeys: the llm gateway needs the studio project id as the token
 #    audience (bridge until synthwerk#28/#30, see stack/compose.e2e.yaml)
 SYNTHWERK_LLM_OIDC_AUDIENCE="$(jq -r .project_id .stack/studio-client.json)" \

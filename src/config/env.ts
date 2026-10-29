@@ -28,6 +28,11 @@ export function adminPAT(): string {
   return readFileSync(join(env.secretsDir, "admin.pat"), "utf8").trim();
 }
 
+/** PAT of the login client (IAM_LOGIN_CLIENT): it may finish auth requests with a session. */
+export function loginPAT(): string {
+  return readFileSync(join(env.secretsDir, "login-client.pat"), "utf8").trim();
+}
+
 export function studioClient(): StudioClient {
   return JSON.parse(readFileSync(join(env.secretsDir, "studio-client.json"), "utf8")) as StudioClient;
 }

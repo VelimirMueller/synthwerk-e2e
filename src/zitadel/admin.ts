@@ -74,3 +74,47 @@ export async function invite(opts: { org: string; projectID: string; roles: stri
   });
   return { userID: made.userId, email, userName, orgID: opts.org };
 }
+
+/**
+ * True when the server-side MFA gate is on (synthwerk#94): a request execution on
+ * OIDC CreateCallback has a target. synthwerk-infra turns it on with
+ * SYNTHWERK_ZITADEL_MFA_GATE=true.
+ */
+export async function mfaGateOn(): Promise<boolean> {
+  const r = await admin<{ executions?: { condition?: { request?: { method?: string } }; targets?: string[] }[] }>(
+    "POST",
+    "/v2/actions/executions/search",
+    {},
+  );
+  return (r.executions ?? []).some(
+    (e) =>
+      e.condition?.request?.method === "/zitadel.oidc.v2.OIDCService/CreateCallback" && (e.targets ?? []).length > 0,
+  );
+}
+
+/** A user with a password and a role, made directly (no invite), for API-only journeys. */
+export async function userWithPassword(opts: {
+  org: string;
+  projectID: string;
+  roles: string[];
+  tag: string;
+  password: string;
+}): Promise<{ userID: string; userName: string }> {
+  const run = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const userName = `${opts.tag}.${run}`;
+  const made = await admin<{ userId: string }>("POST", "/v2/users/human", {
+    organization: { orgId: opts.org },
+    username: userName,
+    profile: { givenName: "E2E", familyName: opts.tag },
+    email: { email: `${userName}@e2e.synthwerk.invalid`, isVerified: true },
+    password: { password: opts.password, changeRequired: false },
+  });
+  const grantID = await projectGrantID(opts.projectID, opts.org);
+  await admin(
+    "POST",
+    `/management/v1/users/${made.userId}/grants`,
+    { projectId: opts.projectID, projectGrantId: grantID, roleKeys: opts.roles },
+    opts.org,
+  );
+  return { userID: made.userId, userName };
+}
