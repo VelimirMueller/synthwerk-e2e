@@ -1,8 +1,9 @@
 # Fleet library CI (fleet-standard templates/library/public), fleet-workflows v0.0.2, stack node.
 #   lint   Biome, tsc, actionlint, zizmor
 #   unit   the Playwright image guard (node --test); no library code, so no coverage floor
-#   e2e    dispatch only (CI-E2E-01): the synthwerk-infra stack (main) plus
-#          stack/compose.e2e.yaml, then the journeys in the Playwright image (pinned by digest)
+#   e2e    dispatch only (CI-E2E-01): the synthwerk-infra stack (main, profile vision) plus
+#          stack/compose.e2e.yaml and a synthwerk-widgets build (main), then the journeys in
+#          the Playwright image (pinned by digest)
 #   build  nothing to build: the journeys run from source (fleet.yml CI-BUILD-04)
 # Required check of the ruleset "main: checks required": conclusion.
 name: ci
@@ -87,21 +88,25 @@ jobs:
     uses: VelimirMueller/fleet-workflows/.github/workflows/_ci-e2e.yml@v0.0.2
     with:
       stack: node
-      # Bring up the infra stack with the e2e overlay, copy the Zitadel secrets out, then run
-      # the journeys in the pinned Playwright image. JUnit goes to e2e-junit.xml (CI-E2E-05).
+      # Bring up the infra stack (profile vision) with the e2e overlay, build the widgets
+      # under test from synthwerk-widgets main, copy the Zitadel secrets out, then run the
+      # journeys in the pinned Playwright image. JUnit goes to e2e-junit.xml (CI-E2E-05).
       command: |
-        export E2E_ZITADEL_API_PORT=8090
+        export E2E_ZITADEL_API_PORT=8090 COMPOSE_PROFILES=vision
         git clone --depth 1 --branch main https://github.com/VelimirMueller/synthwerk-infra.git infra
+        git clone --depth 1 --branch main https://github.com/VelimirMueller/synthwerk-widgets.git widgets
+        (cd widgets && npx --yes pnpm@12.15.0 install --frozen-lockfile && npx --yes pnpm@12.15.0 build)
         infra/scripts/init-env.sh
         compose() { docker compose --project-directory infra -f infra/compose.yaml -f stack/compose.e2e.yaml "$@"; }
         trap 'status=$?; if [ "$status" -ne 0 ]; then compose logs --no-color --tail 150; fi; compose down --volumes; exit "$status"' EXIT
-        compose up --build --wait --wait-timeout 400
+        compose up --build --wait --wait-timeout 600
         scripts/stack-secrets.sh synthwerk
-        # Audience bridge until synthwerk#28/#30: the chat journeys sign in for real,
-        # so the llm gateway must accept the studio project id as the token audience.
-        SYNTHWERK_LLM_OIDC_AUDIENCE="$(jq -r .project_id .stack/studio-client.json)" compose up -d --wait llm
+        # Zitadel access tokens carry the project id as audience, never synthwerk-api: the
+        # journeys sign in for real, so identity (widget token trade, apps) and llm take it.
+        aud="$(jq -r .project_id .stack/studio-client.json)"
+        SYNTHWERK_IDENTITY_OIDC_AUDIENCE="$aud" SYNTHWERK_LLM_OIDC_AUDIENCE="$aud" compose up -d --wait identity llm
         docker run --rm --network host --ipc=host -e CI=1 \
-          -e PLAYWRIGHT_JUNIT_OUTPUT_FILE=e2e-junit.xml \
+          -e PLAYWRIGHT_JUNIT_OUTPUT_FILE=e2e-junit.xml -e E2E_WIDGETS_DIST=/work/widgets/dist \
           -v "$PWD:/work" -w /work --user "$(id -u):$(id -g)" -e HOME=/tmp \
           mcr.microsoft.com/playwright:v1.64.1-noble@sha256:7852dc5a7d72f5fe458a597d690f6c42fbc8e9e26ddfa95f8e6ef552558d9bbf \
           node_modules/.bin/playwright test --reporter=list,junit

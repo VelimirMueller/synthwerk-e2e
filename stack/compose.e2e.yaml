@@ -6,12 +6,14 @@
 # 127.0.0.1:${E2E_ZITADEL_API_PORT:-8090}. Through the edge the WAF blocks admin JSON
 # (CRS 930120 on the user profile body). Browsers still go through the edge and the WAF.
 #
-# The chat journeys need one more step after the bootstrap (synthwerk#36): the llm
-# gateway must accept the studio project id as the token audience.
+# The widget journeys need the profile "vision" (COMPOSE_PROFILES=vision) and one more step
+# after the bootstrap: identity and llm must accept the studio project id as the token
+# audience (Zitadel access tokens never carry synthwerk-api).
 #   scripts/stack-secrets.sh synthwerk
-#   SYNTHWERK_LLM_OIDC_AUDIENCE="$(jq -r .project_id .stack/studio-client.json)" \
-#     docker compose -f ../synthwerk-infra/compose.yaml -f stack/compose.e2e.yaml up -d --wait llm
-# The ci.yml e2e stage runs the same three commands.
+#   aud="$(jq -r .project_id .stack/studio-client.json)"
+#   SYNTHWERK_IDENTITY_OIDC_AUDIENCE="$aud" SYNTHWERK_LLM_OIDC_AUDIENCE="$aud" \
+#     docker compose -f ../synthwerk-infra/compose.yaml -f stack/compose.e2e.yaml up -d --wait identity llm
+# The ci.yml e2e stage runs the same commands.
 services:
   zitadel:
     ports:
@@ -41,3 +43,11 @@ services:
       SYNTHWERK_LLM_PROVIDER: ${SYNTHWERK_LLM_PROVIDER:-fake}
       SYNTHWERK_LLM_FAKE_DELAY: ${SYNTHWERK_LLM_FAKE_DELAY:-100ms}
       SYNTHWERK_LLM_QUOTA_USER_TOKENS: ${SYNTHWERK_LLM_QUOTA_USER_TOKENS:-1500}
+
+  # The vision widget journeys (synthwerk-e2e#9, profile vision) run on the test host page
+  # https://shop.e2e.test:4174 (src/config/env.ts). vision answers CORS from this list until
+  # it answers per app origin like llm (synthwerk-infra#24); the widget token still binds
+  # each call to the origin of its app.
+  vision:
+    environment:
+      SYNTHWERK_VISION_CORS_ORIGINS: ${E2E_VISION_CORS_ORIGINS:-["https://shop.e2e.test:4174"]}

@@ -1,116 +1,70 @@
-import { expect, test } from "@playwright/test";
-import { env, studioClient } from "../../src/config/env.ts";
-import { acceptInvite, enterLoginName } from "../../src/flows/invite.ts";
-import { exchange, startCodeFlow } from "../../src/flows/oidc.ts";
-import { addAuthenticator, credentials, importCredentials } from "../../src/flows/passkey.ts";
-import { invite, orgID } from "../../src/zitadel/admin.ts";
+import { signInWithPasskey } from "../../src/flows/passkey-sign-in.ts";
+import { edgeRequests, expect, openHost, pageErrors, test } from "../../src/host/widget.ts";
+import { waitForMember } from "../../src/identity/apps.ts";
 
-// One SSE frame as the contract defines it: id "<message_id>:<seq>", event name,
-// one line of JSON as data, at holds the arrival time (performance.now in the page).
-type Frame = { id: string; event: string; data: string; at: number };
-
-// synthwerk#36, test 1: a passkey user gets a streamed answer. Real sign-in (invite
-// -> passkey enrolment -> code flow), then a real stream through the edge and the
-// WAF. The fake provider echoes the message one word per piece (100 ms each, set in
-// stack/compose.e2e.yaml), so the journey can assert on the exact answer.
-test("passkey user - chats and the answer streams through the edge", async ({ browser }) => {
+// synthwerk#36 test 1 and synthwerk-e2e#8: a passkey user chats through the real
+// <synthwerk-chat> on a customer page. Real sign-in (invite -> passkey -> code flow), the
+// host hands the Zitadel token to the widget, the widget trades it for a widget token at
+// identity (bound to the page origin) and streams the answer from llm through the edge and
+// the WAF. The page origin is not in the edge CORS list: identity and llm answer CORS per
+// app. The fake provider echoes the message one word per piece (100 ms each, overlay).
+test("passkey user - chats through the widget and the answer streams in pieces", async ({ browser, app }) => {
   test.setTimeout(120_000);
-  const demo = await orgID("demo");
-  const user = await invite({ org: demo, projectID: studioClient().project_id, roles: ["member"], tag: "chat" });
+  const user = await signInWithPasskey(browser, "chat");
+  await waitForMember(user.tokens.access_token);
+  const { page } = user;
+  const requests = edgeRequests(page);
+  const errors = pageErrors(page);
 
-  // 1. Enrol a passkey, like any invited user.
-  const enrol = await browser.newContext();
-  const enrolPage = await enrol.newPage();
-  const device = await addAuthenticator(enrol, enrolPage);
-  await acceptInvite(enrolPage, user);
-  await enrolPage.getByRole("link", { name: "Passkeys" }).click();
-  await expect(enrolPage.getByRole("heading", { name: "Setup a passkey" })).toBeVisible();
-  await enrolPage.getByRole("button", { name: "Continue" }).click();
-  await expect(enrolPage.getByText("You are signed in")).toBeVisible();
-  const creds = await credentials(device);
-  await enrol.close();
+  await openHost(page, { widget: "chat", app, token: user.tokens.access_token });
+  await page.getByRole("button", { name: "Open chat" }).click();
+  const input = page.getByRole("textbox", { name: "Write a message" });
+  await expect(input).toBeEnabled();
 
-  // 2. Fresh browser, same device: sign in with the passkey. A passkey with user
-  //    verification is MFA, so no MFA screen shows.
-  const ctx = await browser.newContext();
-  const page = await ctx.newPage();
-  await importCredentials(await addAuthenticator(ctx, page), creds);
-  const flow = await startCodeFlow(page);
-  await enterLoginName(page, user.userName);
-  const code = await flow.code;
-  await expect(page).not.toHaveURL(/\/mfa\//);
-  const tokens = await exchange(code, flow.verifier);
+  // Record every text the answer bubble shows while it grows: a stream shows partial
+  // answers, one blob shows only the final text.
+  await page.evaluate(() => {
+    const w = window as unknown as { answerSeen: string[] };
+    w.answerSeen = [];
+    const root = document.querySelector("synthwerk-chat")?.shadowRoot;
+    if (!root) throw new Error("no shadow root on synthwerk-chat");
+    new MutationObserver(() => {
+      const text = root.querySelector(".sw-msg--assistant:not(.sw-msg--greeting)")?.textContent?.trim() ?? "";
+      if (text && w.answerSeen.at(-1) !== text) w.answerSeen.push(text);
+    }).observe(root, { subtree: true, childList: true, characterData: true });
+  });
 
-  // 3. Chat from the browser at the edge origin, like the widget will (synthwerk#34).
-  //    The /stub page stands in for the app page until the widget exists.
-  await page.goto(`${env.edge}/stub`);
-  const marker = `e2e chat probe ${Date.now()}`;
-  const frames = await page.evaluate(
-    async ({ base, token, marker }): Promise<Frame[]> => {
-      const create = await fetch(`${base}/llm/v1/conversations`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({}),
-      });
-      if (create.status !== 201) throw new Error(`create: ${create.status} ${await create.text()}`);
-      const conversation = (await create.json()) as { id: string };
-      const res = await fetch(`${base}/llm/v1/conversations/${conversation.id}/messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ content: marker }),
-      });
-      if (!res.ok || !res.body) throw new Error(`send: ${res.status} ${await res.text()}`);
-
-      // Read the stream as it arrives; one frame per SSE event block.
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-      const out: Frame[] = [];
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        let i: number;
-        while ((i = buf.indexOf("\n\n")) >= 0) {
-          const chunk = buf.slice(0, i);
-          buf = buf.slice(i + 2);
-          const event = /^event: (.+)$/m.exec(chunk)?.[1];
-          if (!event) continue; // a ": ping" comment holds the connection open
-          out.push({
-            id: /^id: (.+)$/m.exec(chunk)?.[1] ?? "",
-            event,
-            data: /^data: (.+)$/m.exec(chunk)?.[1] ?? "",
-            at: performance.now(),
-          });
-        }
-      }
-      return out;
-    },
-    { base: env.edge, token: tokens.access_token, marker },
+  const marker = `e2e widget probe ${Date.now()}`;
+  const streamed = page.waitForResponse(
+    (r) => r.request().method() === "POST" && /\/llm\/v1\/conversations\/[^/]+\/messages$/.test(r.url()),
   );
+  await input.fill(marker);
+  await page.getByRole("button", { name: "Send" }).click();
 
-  // 4. Shape per contract: deltas first, then usage, then done. Never an error event.
-  const events = frames.map((f) => f.event);
-  expect(events.at(0)).toBe("delta");
-  expect(events.filter((e) => e === "error")).toEqual([]);
-  expect(events.slice(-2)).toEqual(["usage", "done"]);
+  // 1. The answer is this user's turn: the fake echoes "echo: <message>". The bubble
+  //    starts with a label for screen readers ("Assistant: ").
+  const answer = page.locator("synthwerk-chat .sw-msg--assistant.sw-msg--done");
+  await expect(answer).toHaveText(`Assistant: echo: ${marker}`);
 
-  // 5. The answer is this user's turn, streamed in pieces. The fake echoes
-  //    "echo: <message>" one word per piece, so a marker in finds the marker out.
-  const deltas = frames.filter((f) => f.event === "delta");
-  const answer = deltas.map((f) => (JSON.parse(f.data) as { text: string }).text).join("");
-  expect(answer).toBe(`echo: ${marker}`);
-  expect(deltas.length).toBeGreaterThanOrEqual(4);
+  // 2. It arrived in more than one piece: an SSE answer, and the bubble showed growing
+  //    partial answers before the full one (one blob would show only the full text). The
+  //    widget reads the body itself, so the browser keeps no copy of the frames.
+  const res = await streamed;
+  expect(res.status()).toBe(200);
+  expect(res.headers()["content-type"]).toContain("text/event-stream");
+  const seen = await page.evaluate(() => (window as unknown as { answerSeen: string[] }).answerSeen);
+  const full = `Assistant: echo: ${marker}`;
+  const partial = seen.filter((t) => t !== full && full.startsWith(t) && t.length > "Assistant: ".length);
+  expect(partial.length, `bubble texts: ${JSON.stringify(seen)}`).toBeGreaterThanOrEqual(2);
 
-  // 6. Every frame names the same message, done carries its id.
-  const done = JSON.parse(frames.at(-1)?.data ?? "{}") as { message_id: string; finish_reason: string };
-  expect(done.finish_reason).toBe("stop");
-  for (const f of frames) expect(f.id.startsWith(`${done.message_id}:`)).toBe(true);
-
-  // TODO(Velimir): the streaming proof above is structural (pieces, order, echo).
-  // frames[].at holds the page-clock arrival time of every frame, and the fake
-  // delays 100 ms per piece, so a temporal proof fits here: assert the spread
-  // between the first and the last delta. Decide whether CI can afford a timing
-  // assertion (slow runners) or whether the structure stays the only proof.
-  await ctx.close();
+  // 3. The widget talks to the edge only in the documented order: public settings, one
+  //    token trade, then llm with the widget token.
+  expect(requests.filter((r) => !r.startsWith("OPTIONS "))).toEqual([
+    `GET /identity/v1/apps/${app.id}/widget-settings`,
+    `POST /identity/v1/apps/${app.id}/widget-tokens`,
+    "POST /llm/v1/conversations",
+    expect.stringMatching(/^POST \/llm\/v1\/conversations\/[^/]+\/messages$/),
+  ]);
+  expect(errors).toEqual([]);
+  await user.context.close();
 });

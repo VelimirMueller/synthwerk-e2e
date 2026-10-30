@@ -1,6 +1,12 @@
 import { request as httpRequest } from "node:http";
 
-export type Reply = { status: number; body: string; location?: string; json<T = unknown>(): T };
+export type Reply = {
+  status: number;
+  body: string;
+  location?: string;
+  headers: Record<string, string | string[] | undefined>;
+  json<T = unknown>(): T;
+};
 
 /**
  * One HTTP call to a loopback URL with an explicit Host header. Node does not resolve
@@ -38,6 +44,7 @@ export function call(
             status: res.statusCode ?? 0,
             body: data,
             location: res.headers.location,
+            headers: res.headers,
             json: <T>() => JSON.parse(data) as T,
           }),
         );

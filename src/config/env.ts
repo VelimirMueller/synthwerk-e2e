@@ -20,6 +20,23 @@ export const env = {
   redirectURI: process.env.E2E_REDIRECT_URI ?? "http://localhost:3000/api/auth/callback",
   /** Folder that scripts/stack-secrets.sh fills. */
   secretsDir: process.env.E2E_SECRETS_DIR ?? join(process.cwd(), ".stack"),
+  /** Port of the test host page (src/host/serve.ts). */
+  hostPort: Number(process.env.E2E_HOST_PORT ?? "4174"),
+  /**
+   * Origin of the host page, a customer site; the widget app allows only this origin.
+   * Chromium maps *.e2e.test to 127.0.0.1 (playwright.config.ts). https with a throwaway
+   * certificate: identity takes http only for localhost, and the edge WAF blocks a
+   * localhost URL in a request body (CRS 934110, SSRF).
+   */
+  get hostOrigin() {
+    return `https://shop.e2e.test:${this.hostPort}`;
+  },
+  /** Same server, other origin: no app allows it (the origin error journeys). */
+  get foreignOrigin() {
+    return `https://other.e2e.test:${this.hostPort}`;
+  },
+  /** dist/ of a synthwerk-widgets build (synthwerk-chat.js, synthwerk-vision.js). */
+  widgetsDist: process.env.E2E_WIDGETS_DIST ?? join(process.cwd(), "..", "synthwerk-widgets", "dist"),
 };
 
 export type StudioClient = { project_id: string; app_id: string; client_id: string; client_secret: string };
