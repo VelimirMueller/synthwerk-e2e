@@ -4,3 +4,6 @@ playwright-report/
 test-results/
 blob-report/
 .DS_Store
+# CI clones (ci.yml e2e stage); also where a local run may keep them.
+/infra/
+/widgets/

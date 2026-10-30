@@ -1,0 +1,15 @@
+{
+  "source": "synthwerk-vision eval/manifest.yaml (Wikimedia Commons), copied byte for byte",
+  "photos": [
+    {
+      "file": "cow-on-pasture-ehrenbach.jpg",
+      "title": "File:Cow on pasture, Ehrenbach.jpg",
+      "page": "https://commons.wikimedia.org/wiki/File:Cow_on_pasture,_Ehrenbach.jpg",
+      "license": "CC0",
+      "author": "Gerda Arendt",
+      "sha256": "fd27cfba64c3f248cbad413fa722c4bca625cff69064525fc89288c37e1abbdd",
+      "topics": ["animal"],
+      "label": "cow"
+    }
+  ]
+}
