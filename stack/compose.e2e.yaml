@@ -44,10 +44,5 @@ services:
       SYNTHWERK_LLM_FAKE_DELAY: ${SYNTHWERK_LLM_FAKE_DELAY:-100ms}
       SYNTHWERK_LLM_QUOTA_USER_TOKENS: ${SYNTHWERK_LLM_QUOTA_USER_TOKENS:-1500}
 
-  # The vision widget journeys (synthwerk-e2e#9, profile vision) run on the test host page
-  # https://shop.e2e.test:4174 (src/config/env.ts). vision answers CORS from this list until
-  # it answers per app origin like llm (synthwerk-infra#24); the widget token still binds
-  # each call to the origin of its app.
-  vision:
-    environment:
-      SYNTHWERK_VISION_CORS_ORIGINS: ${E2E_VISION_CORS_ORIGINS:-["https://shop.e2e.test:4174"]}
+  # vision needs no overlay: since synthwerk-infra#26 it answers CORS per app origin (it asks
+  # identity), and the journeys register the host page origin as an app (src/host/widget.ts).
