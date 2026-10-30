@@ -1,9 +1,10 @@
 # Fleet library CI (fleet-standard templates/library/public), fleet-workflows v0.0.2, stack node.
 #   lint   Biome, tsc, actionlint, zizmor
 #   unit   the Playwright image guard (node --test); no library code, so no coverage floor
-#   e2e    dispatch only (CI-E2E-01): the synthwerk-infra stack (main, profile vision) plus
-#          stack/compose.e2e.yaml and a synthwerk-widgets build (main), then the journeys in
-#          the Playwright image (pinned by digest)
+#   e2e    dispatch only (CI-E2E-01): the synthwerk-infra stack (profile vision) plus
+#          stack/compose.e2e.yaml and a synthwerk-widgets build, then the journeys in the
+#          Playwright image (pinned by digest). infra-ref and widgets-ref pick the commits under
+#          test: a branch, a tag or a full SHA; main by default
 #   build  nothing to build: the journeys run from source (fleet.yml CI-BUILD-04)
 # Required check of the ruleset "main: checks required": conclusion.
 name: ci
@@ -18,6 +19,14 @@ on:
         description: Run the e2e stage
         type: boolean
         default: false
+      infra-ref:
+        description: synthwerk-infra commit to run the stack from (branch, tag or full SHA)
+        type: string
+        default: main
+      widgets-ref:
+        description: synthwerk-widgets commit to build the widgets from (branch, tag or full SHA)
+        type: string
+        default: main
 
 permissions: {}
 
@@ -77,11 +86,37 @@ jobs:
       # The guard reads files; there is no library code to cover (fleet.yml CI-UNIT-03).
       coverage-floor: 0
 
+  # The refs go into the e2e command text, so check them first: a branch, tag or SHA name only,
+  # nothing a shell reads as code. The command uses these outputs, never the raw inputs.
+  refs:
+    needs: [changes, unit]
+    if: ${{ !failure() && !cancelled() && github.event_name == 'workflow_dispatch' && inputs.e2e }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    outputs:
+      infra: ${{ steps.check.outputs.infra }}
+      widgets: ${{ steps.check.outputs.widgets }}
+    steps:
+      - name: Check the refs under test
+        id: check
+        env:
+          INFRA_REF: ${{ inputs.infra-ref }}
+          WIDGETS_REF: ${{ inputs.widgets-ref }}
+        run: |
+          for ref in "$INFRA_REF" "$WIDGETS_REF"; do
+            if ! [[ "$ref" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$ ]] || [[ "$ref" == *..* ]]; then
+              echo "::error::not a branch, tag or SHA: $ref"; exit 1
+            fi
+          done
+          echo "infra=$INFRA_REF" >> "$GITHUB_OUTPUT"
+          echo "widgets=$WIDGETS_REF" >> "$GITHUB_OUTPUT"
+
   # Fleet rule CI-E2E-01: e2e never runs on a PR, a push or a schedule; only by dispatch of
   # this workflow with e2e: true (or in a promotion preflight). The journeys are the product of
   # this repo, so run them by hand before a merge that changes them: Actions > ci > Run workflow.
   e2e:
-    needs: [changes, unit]
+    needs: [changes, unit, refs]
     if: ${{ !failure() && !cancelled() && github.event_name == 'workflow_dispatch' && inputs.e2e }}
     permissions:
       contents: read
@@ -89,12 +124,18 @@ jobs:
     with:
       stack: node
       # Bring up the infra stack (profile vision) with the e2e overlay, build the widgets
-      # under test from synthwerk-widgets main, copy the Zitadel secrets out, then run the
-      # journeys in the pinned Playwright image. JUnit goes to e2e-junit.xml (CI-E2E-05).
+      # under test, copy the Zitadel secrets out, then run the journeys in the pinned
+      # Playwright image. JUnit goes to e2e-junit.xml (CI-E2E-05). fetch takes a branch, a
+      # tag or a full SHA (GitHub serves a commit by SHA); the summary names the commits.
       command: |
         export E2E_ZITADEL_API_PORT=8090 COMPOSE_PROFILES=vision
-        git clone --depth 1 --branch main https://github.com/VelimirMueller/synthwerk-infra.git infra
-        git clone --depth 1 --branch main https://github.com/VelimirMueller/synthwerk-widgets.git widgets
+        checkout() {
+          git init -q "$2" && git -C "$2" fetch -q --depth 1 "https://github.com/VelimirMueller/$1.git" "$3"
+          git -C "$2" checkout -q --detach FETCH_HEAD
+          echo "$1 $3 = $(git -C "$2" rev-parse HEAD)" | tee -a "$GITHUB_STEP_SUMMARY"
+        }
+        checkout synthwerk-infra infra '${{ needs.refs.outputs.infra }}'
+        checkout synthwerk-widgets widgets '${{ needs.refs.outputs.widgets }}'
         (cd widgets && npx --yes pnpm@12.15.0 install --frozen-lockfile && npx --yes pnpm@12.15.0 build)
         infra/scripts/init-env.sh
         compose() { docker compose --project-directory infra -f infra/compose.yaml -f stack/compose.e2e.yaml "$@"; }
@@ -126,7 +167,7 @@ jobs:
   # lint, unit and build must be success; a dispatch with e2e: true also needs e2e success.
   # A docs-only PR skips the stages on purpose (CI-COST-16).
   conclusion:
-    needs: [changes, lint, unit, e2e, build]
+    needs: [changes, lint, unit, refs, e2e, build]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

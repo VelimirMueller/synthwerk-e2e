@@ -24,14 +24,16 @@ updated: 2026-10-30
 | Rule | Value |
 |---|---|
 | Stack | Profile `vision` (`COMPOSE_PROFILES=vision`): the published SigLIP 2 image pinned in synthwerk-infra. |
-| CORS | vision answers CORS from `SYNTHWERK_VISION_CORS_ORIGINS`; the overlay sets it to the host page origin until vision answers per app origin (synthwerk-infra#24). |
+| CORS | vision answers CORS per app origin: it asks identity (synthwerk-infra#26). The overlay sets nothing for vision. |
 | Expected label | Set in `tests/fixtures/vision/photos.json`. A new model or label set can change it: update the file with the new label. |
 | Camera project | `chromium-camera` runs only the camera journey with `channel: 'chromium'` (new headless). The default headless shell has no media capture (`NotSupportedError`). |
 ## Tests
 - `tests/vision/vision-upload.spec.ts` — `signed-in user - an eval-set photo shows its primary label and alternatives`
 - `tests/vision/vision-upload.spec.ts` — `signed-out visitor - sign-in prompt, no request to vision`
 - `tests/vision/vision-camera.spec.ts` — `signed-in user - a photo from the camera gets labels, the camera stops`
+- `tests/vision/vision-origin.spec.ts` — `signed-in user on an origin the app does not allow - not-allowed text, no vision call`
 ## Changes
 | Date | Change |
 |---|---|
 | 2026-10-30 | First version (synthwerk-e2e#9). |
+| 2026-10-30 | Origin journey: not-allowed text, no vision call (synthwerk-widgets#41). The overlay no longer sets the vision CORS list (synthwerk-infra#26). |

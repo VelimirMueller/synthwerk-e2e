@@ -23,25 +23,26 @@ updated: 2026-10-30
 - Stream: invite, passkey enrolment, code flow (as in [sign-in-journeys.md](sign-in-journeys.md)). The widget answer must equal `echo: <message>`. A `MutationObserver` records the bubble text: at least two partial answers before the full one. The request order is settings, token trade, create, send.
 - Anonymous: the only edge request is the public settings request (200). No token trade, no `/llm/` request. The gateway answers an anonymous call with `401 unauthenticated`.
 - Quota: a stream of 100 words (about 10 s) from outside the browser holds the user quota (same user, Zitadel token). The widget send in the meantime gets `429 quota_exhausted` with `quota.scope = user`, `limit = 1500`, `resets_at` = next UTC midnight, `Retry-After`. The widget shows "You used all of your chat quota. It resets at …" and disables the input. The widget conversation stays empty; the open stream ends with `usage`, `done`.
-- Origin: the same page on `https://other.e2e.test:4174`. identity answers the token trade preflight without an allow-origin, so the browser blocks the trade. The widget shows an error; no `/llm/` request. A direct trade from that origin gets `403 origin_not_allowed`.
+- Origin: the same page on `https://other.e2e.test:4174`. identity answers the token trade preflight for that origin and refuses the trade with a readable `403 origin_not_allowed` (no token, `no-store`, no credentials header). The widget shows "This site cannot use the chat." without a retry; no `/llm/` request (synthwerk-widgets#41).
 ## Rules and limits
 | Rule | Value |
 |---|---|
 | Provider | `fake` for the chat journeys (overlay default); deterministic, no model in the loop. |
 | Audience | The ci stage re-ups identity and llm with `SYNTHWERK_*_OIDC_AUDIENCE=<studio project id>`: Zitadel access tokens never carry `synthwerk-api`. |
 | User quota | `SYNTHWERK_LLM_QUOTA_USER_TOKENS=1500` in the overlay. |
-| Widgets | A build of synthwerk-widgets main: `E2E_WIDGETS_DIST` (default `../synthwerk-widgets/dist`). |
+| Widgets | A build of synthwerk-widgets: `E2E_WIDGETS_DIST` (default `../synthwerk-widgets/dist`). CI builds the `widgets-ref` input (default `main`). |
+| Stack | CI runs synthwerk-infra at the `infra-ref` input (default `main`). Both refs take a branch, a tag or a full SHA. |
 | Host origin | `https` and a domain: identity takes `http` only for `localhost`, and the WAF blocks a `localhost` URL in a request body (CRS 934110). |
 | Membership | identity stores a new member from the Zitadel grant hook a moment after sign-in. `waitForMember` polls `GET /v1/orgs/{id}` until 200. |
-| Known gap | The widget state "This site cannot use the chat." never shows in a browser: the CORS preflight fails before the widget can read `403 origin_not_allowed` (synthwerk-widgets#41). |
 ## Tests
 - `tests/chat/chat-stream.spec.ts` — `passkey user - chats through the widget and the answer streams in pieces`
 - `tests/chat/chat-anonymous.spec.ts` — `signed-out visitor - widget sign-in, no llm call, gateway refuses anonymous calls`
 - `tests/chat/chat-quota.spec.ts` — `signed-in user over quota - the widget shows the quota state, the open stream finishes`
-- `tests/chat/chat-origin.spec.ts` — `signed-in user on an origin the app does not allow - no widget token, no llm call`
+- `tests/chat/chat-origin.spec.ts` — `signed-in user on an origin the app does not allow - not-allowed text, no widget token, no llm call`
 ## Changes
 | Date | Change |
 |---|---|
 | 2026-10-28 | First version (synthwerk#36 tasks 4-6). |
 | 2026-10-29 | Quota journey (synthwerk#33). |
 | 2026-10-30 | The journeys use the real widget on a customer page; `/stub` is no longer used; origin journey (synthwerk-e2e#8). |
+| 2026-10-30 | The origin journey asserts the not-allowed text (synthwerk-widgets#41). CI takes `infra-ref` and `widgets-ref`. |
