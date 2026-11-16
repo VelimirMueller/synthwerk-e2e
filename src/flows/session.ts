@@ -30,17 +30,18 @@ export async function finishAuthRequest(authRequest: string, user: TOTPUser): Pr
     checks: { user: { loginName: user.userName }, password: { password: user.password } },
   });
   // Zitadel takes one 30 s step of skew: the next step's code differs from the enrolment code.
-  // A second sign-in of the same user waits for a step that no sign-in used yet.
+  // A second sign-in of the same user waits until the step after the used one starts.
   const STEP = 30_000;
-  let at = Date.now() + STEP;
-  if (user.usedStep !== undefined && Math.floor(at / STEP) <= user.usedStep) {
-    await new Promise((resolve) => setTimeout(resolve, ((user.usedStep ?? 0) + 1) * STEP - at + 500));
-    at = Date.now() + STEP;
+  let step = Math.floor((Date.now() + STEP) / STEP);
+  const used = user.usedStep;
+  if (used !== undefined && step <= used) {
+    step = used + 1;
+    await new Promise((resolve) => setTimeout(resolve, (step - 1) * STEP - Date.now() + 500));
   }
-  user.usedStep = Math.floor(at / STEP);
   const checked = await sessionAPI<{ sessionToken: string }>("PATCH", `/v2/sessions/${session.sessionId}`, {
-    checks: { totp: { code: totp(user.secret, at) } },
+    checks: { totp: { code: totp(user.secret, step * STEP) } },
   });
+  user.usedStep = step;
   const done = await sessionAPI<{ callbackUrl: string }>("POST", `/v2/oidc/auth_requests/${authRequest}`, {
     session: { sessionId: session.sessionId, sessionToken: checked.sessionToken },
   });

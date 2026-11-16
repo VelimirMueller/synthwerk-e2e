@@ -133,6 +133,8 @@ test("load over the limit - refused before llm, the model load stays flat", asyn
   const refused = replies.filter((r) => r.status !== 200);
   const codes = refused.map((r) => demoCode(r.body));
 
+  // A range on purpose: of the 5 calls the user limit lets through, the gate (2 at once) and
+  // the llm quota refuse some, depending on timing. The 35 below prove the limit of 5.
   expect(ok.length).toBeLessThanOrEqual(5);
   expect(ok.length).toBeGreaterThanOrEqual(1);
   for (const r of refused) {
