@@ -24,5 +24,5 @@ curl -fsS "http://127.0.0.1:${E2E_ZITADEL_API_PORT:-8090}/admin/v1/orgs/_search"
   -H 'Content-Type: application/json' \
   -d '{"queries":[{"nameQuery":{"name":"demo","method":"TEXT_QUERY_METHOD_EQUALS"}}]}' |
   jq -er '.result[0].id' > .stack/site-org-id ||
-  { echo "stack-secrets: no org \"demo\" in Zitadel (run the zitadel-bootstrap first)" >&2; exit 1; }
+  { rm -f .stack/site-org-id; echo "stack-secrets: no org \"demo\" in Zitadel (run the zitadel-bootstrap first)" >&2; exit 1; }
 echo "Wrote .stack/admin.pat, .stack/login-client.pat, .stack/studio-client.json and .stack/site-org-id from project $project."

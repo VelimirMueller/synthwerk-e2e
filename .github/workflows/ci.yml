@@ -115,9 +115,11 @@ jobs:
               echo "::error::not a branch, tag or SHA: $ref"; exit 1
             fi
           done
-          echo "infra=$INFRA_REF" >> "$GITHUB_OUTPUT"
-          echo "widgets=$WIDGETS_REF" >> "$GITHUB_OUTPUT"
-          echo "studio=$STUDIO_REF" >> "$GITHUB_OUTPUT"
+          {
+            echo "infra=$INFRA_REF"
+            echo "widgets=$WIDGETS_REF"
+            echo "studio=$STUDIO_REF"
+          } >> "$GITHUB_OUTPUT"
 
   # Fleet rule CI-E2E-01: e2e never runs on a PR, a push or a schedule; only by dispatch of
   # this workflow with e2e: true (or in a promotion preflight). The journeys are the product of
