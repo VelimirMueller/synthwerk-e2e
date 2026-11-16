@@ -21,11 +21,12 @@ export async function demoVisitor(tag: string): Promise<{ user: TOTPUser; studio
 
 /** Puts the studio session cookie into the browser: the page is signed in, no sign-in UI. */
 export async function useSession(context: BrowserContext, s: StudioSession): Promise<void> {
-  const [name, ...rest] = s.cookie.split("=");
+  const at = s.cookie.indexOf("=");
+  if (at < 1) throw new Error("studio session cookie is not name=value");
   await context.addCookies([
     {
-      name: name ?? "",
-      value: rest.join("="),
+      name: s.cookie.slice(0, at),
+      value: s.cookie.slice(at + 1),
       url: env.siteURL,
       // studio sets __Host- cookies: Secure, path /, no domain. Chromium takes Secure on localhost.
       secure: true,
