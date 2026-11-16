@@ -16,32 +16,39 @@ Status: draft, milestone M2. Plain README until the brand kit render (vm-brand) 
 | `tests/chat/chat-origin.spec.ts` | On an origin that no app allows, the widget gets no widget token and makes no llm call (e2e#8). |
 | `tests/vision/vision-upload.spec.ts` | A photo from the vision eval set shows its primary label and alternatives in the real `<synthwerk-vision>`; signed out, no vision request (e2e#9). |
 | `tests/vision/vision-camera.spec.ts` | A photo from the Chromium fake camera gets labels, and the camera stops (e2e#9). |
+| `tests/site/request-audit.spec.ts` | Without consent, `/de`, `/en`, a published builder page and the six legal pages of the public site send every request to the site origin. Analytics loads only after the opt-in (synthwerk#45). |
 Users come by invite only (D-51). The invite mail is read from Mailpit (D-49).
 The chat journeys run against the fake provider: it echoes the message one word per
 piece (100 ms each), so no model is in the loop. The vision journeys use the real model
 (stack profile `vision`). The widgets run on a test host page (`src/host/serve.ts`,
-`https://shop.e2e.test:4174`) built from a synthwerk-widgets checkout.
+`https://shop.e2e.test:4174`) built from a synthwerk-widgets checkout. The site journey runs
+against studio's public routes on `http://localhost:3001` (stack profile `studio`, built from
+a synthwerk-studio checkout). An owner of the demo org publishes its pages through the studio
+builder API; the demo org is the site org (`NUXT_SITE_ORG_ID`).
 ## Run locally
 ```bash
 # 1. The stack, with this repo's overlay (Zitadel API on 127.0.0.1:8090 for test setup)
 cd ../synthwerk-infra && scripts/init-env.sh
-COMPOSE_PROFILES=vision docker compose -f compose.yaml -f ../synthwerk-e2e/stack/compose.e2e.yaml up --build --wait
+COMPOSE_PROFILES=vision,studio docker compose -f compose.yaml -f ../synthwerk-e2e/stack/compose.e2e.yaml up --build --wait
 # 2. The widgets under test
 cd ../synthwerk-widgets && pnpm install && pnpm build
 # 3. The journeys
 cd ../synthwerk-e2e
 pnpm install
 pnpm exec playwright install chromium
-pnpm stack:secrets          # copies the local IAM owner PAT, login-client PAT and studio client to .stack/
-# 4. identity and llm need the studio project id as the token audience (stack/compose.e2e.yaml)
+pnpm stack:secrets          # copies the local IAM owner PAT, login-client PAT and studio client, writes the demo org id, all to .stack/
+# 4. identity and llm need the studio project id as the token audience; studio needs the
+#    site org (stack/compose.e2e.yaml)
 aud="$(jq -r .project_id .stack/studio-client.json)"
-SYNTHWERK_IDENTITY_OIDC_AUDIENCE="$aud" SYNTHWERK_LLM_OIDC_AUDIENCE="$aud" COMPOSE_PROFILES=vision \
-  docker compose -f ../synthwerk-infra/compose.yaml -f stack/compose.e2e.yaml up -d --wait identity llm
+SYNTHWERK_IDENTITY_OIDC_AUDIENCE="$aud" SYNTHWERK_LLM_OIDC_AUDIENCE="$aud" \
+  SYNTHWERK_SITE_ORG_ID="$(cat .stack/site-org-id)" COMPOSE_PROFILES=vision,studio \
+  docker compose -f ../synthwerk-infra/compose.yaml -f stack/compose.e2e.yaml up -d --wait identity llm studio
 pnpm test
 ```
 Settings (env): `E2E_EDGE_PORT` (8080), `E2E_ZITADEL_API_PORT` (8090), `E2E_MAILPIT_URL`
 (`http://127.0.0.1:8025`), `E2E_AUTH_DOMAIN` (`auth.localhost`), `E2E_HOST_PORT` (4174),
-`E2E_WIDGETS_DIST` (`../synthwerk-widgets/dist`). Keep the edge on 8080: with another
+`E2E_WIDGETS_DIST` (`../synthwerk-widgets/dist`), `E2E_SITE_PORT` (3001), `E2E_SITE_ANALYTICS_URL`
+(`https://analytics.e2e.test/script.js`, the value of the overlay). Keep the edge on 8080: with another
 edge port the issuer `http://auth.localhost:<port>` is not reachable from the services. `.stack/` holds local
 secrets and is git-ignored. Never point the tests at dev or prd.
 ## CI
@@ -54,8 +61,9 @@ CI-E2E-01): Actions > ci > Run workflow with e2e: true. The ruleset requires `ga
 - `src/flows` invite, OIDC code flow with PKCE, virtual passkey, Session API sign-in with TOTP
 - `src/host` test host page for the widgets, widget fixtures
 - `src/identity` identity calls: membership wait, widget app
+- `src/studio` studio BFF sign-in without a browser, page builder calls (create, publish, delete)
 - `src/support` HTTP, Mailpit, TOTP
-- `stack/compose.e2e.yaml` overlay on the infra stack (Zitadel API port, llm for the chat journeys, vision CORS)
+- `stack/compose.e2e.yaml` overlay on the infra stack (Zitadel API port, llm for the chat journeys, studio site org and analytics URL)
 - `tests/` specs (never next to source); `tests/fixtures/vision` the eval-set photo
 ## License
 MIT

@@ -37,6 +37,21 @@ export const env = {
   },
   /** dist/ of a synthwerk-widgets build (synthwerk-chat.js, synthwerk-vision.js). */
   widgetsDist: process.env.E2E_WIDGETS_DIST ?? join(process.cwd(), "..", "synthwerk-widgets", "dist"),
+  /** Port of studio in the stack (compose profile studio, SYNTHWERK_STUDIO_PORT). */
+  sitePort: Number(process.env.E2E_SITE_PORT ?? "3001"),
+  /** The public site as the browser sees it: studio's own origin (synthwerk#45). */
+  get siteURL() {
+    return `http://localhost:${this.sitePort}`;
+  },
+  /** Same server for Node calls: loopback address, Host header localhost:<port>. */
+  get siteLoopback() {
+    return `http://127.0.0.1:${this.sitePort}`;
+  },
+  /**
+   * The analytics script that stack/compose.e2e.yaml gives studio. A third-party origin on
+   * purpose: the request audit proves it loads only after the opt-in. The test answers it.
+   */
+  siteAnalyticsURL: process.env.E2E_SITE_ANALYTICS_URL ?? "https://analytics.e2e.test/script.js",
 };
 
 export type StudioClient = { project_id: string; app_id: string; client_id: string; client_secret: string };
@@ -48,6 +63,11 @@ export function adminPAT(): string {
 /** PAT of the login client (IAM_LOGIN_CLIENT): it may finish auth requests with a session. */
 export function loginPAT(): string {
   return readFileSync(join(env.secretsDir, "login-client.pat"), "utf8").trim();
+}
+
+/** Zitadel id of the org whose builder pages the public site shows (scripts/stack-secrets.sh). */
+export function siteOrgID(): string {
+  return readFileSync(join(env.secretsDir, "site-org-id"), "utf8").trim();
 }
 
 export function studioClient(): StudioClient {
