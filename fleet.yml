@@ -9,6 +9,10 @@ exceptions:
       lines: 0
       branches: 0
     reason: The unit stage runs only the Playwright image guard, which reads repo files; the repo has no library code to cover.
+  - rule: WF-NAME-02
+    value:
+      ci.yml: [refs]
+    reason: The refs job checks the dispatch inputs infra-ref and widgets-ref before the e2e command text uses them; the reusable e2e stage takes no env input, so the guard cannot run inside it.
   - rule: CI-BUILD-04
     value:
       pack: false
