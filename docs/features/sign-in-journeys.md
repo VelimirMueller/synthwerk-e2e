@@ -49,6 +49,6 @@ updated: 2026-10-29
 
 | Date | Change |
 |---|---|
-| 2026-11-16 | `signInUser` and `studioSignInAs` sign in an existing TOTP user. The overlay publishes the identity API on 127.0.0.1:8091 for test setup (synthwerk#47). |
+| 2026-11-16 | `signInUser` and `studioSignInAs` sign in an existing TOTP user. A second sign-in waits for an unused TOTP step. The overlay publishes the identity API on 127.0.0.1:8091 for test setup (synthwerk#47). |
 | 2026-10-29 | MFA gate journey; access token `amr` checks (synthwerk#94). |
 | 2026-10-28 | First version (synthwerk#28 task 9, synthwerk#36 tasks 1-2 and 7). |

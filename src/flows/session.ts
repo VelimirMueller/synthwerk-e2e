@@ -7,8 +7,11 @@ import { exchange, studioScope, type Tokens } from "./oidc.ts";
 
 export type SignedIn = { userID: string; userName: string; tokens: Tokens };
 
-/** A user with a password and a verified TOTP factor (made directly, no invite). */
-export type TOTPUser = { userID: string; userName: string; password: string; secret: string };
+/**
+ * A user with a password and a verified TOTP factor (made directly, no invite). usedStep: the
+ * last 30 s TOTP step a sign-in used; Zitadel refuses a code of a used step.
+ */
+export type TOTPUser = { userID: string; userName: string; password: string; secret: string; usedStep?: number };
 
 export async function totpUser(opts: { org: string; roles: string[]; tag: string }): Promise<TOTPUser> {
   const password = `Sw-e2e-${randomBytes(4).toString("hex")}-Pw!`;
@@ -27,8 +30,16 @@ export async function finishAuthRequest(authRequest: string, user: TOTPUser): Pr
     checks: { user: { loginName: user.userName }, password: { password: user.password } },
   });
   // Zitadel takes one 30 s step of skew: the next step's code differs from the enrolment code.
+  // A second sign-in of the same user waits for a step that no sign-in used yet.
+  const STEP = 30_000;
+  let at = Date.now() + STEP;
+  if (user.usedStep !== undefined && Math.floor(at / STEP) <= user.usedStep) {
+    await new Promise((resolve) => setTimeout(resolve, ((user.usedStep ?? 0) + 1) * STEP - at + 500));
+    at = Date.now() + STEP;
+  }
+  user.usedStep = Math.floor(at / STEP);
   const checked = await sessionAPI<{ sessionToken: string }>("PATCH", `/v2/sessions/${session.sessionId}`, {
-    checks: { totp: { code: totp(user.secret, Date.now() + 30_000) } },
+    checks: { totp: { code: totp(user.secret, at) } },
   });
   const done = await sessionAPI<{ callbackUrl: string }>("POST", `/v2/oidc/auth_requests/${authRequest}`, {
     session: { sessionId: session.sessionId, sessionToken: checked.sessionToken },

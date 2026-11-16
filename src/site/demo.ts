@@ -27,8 +27,10 @@ export async function useSession(context: BrowserContext, s: StudioSession): Pro
     {
       name: s.cookie.slice(0, at),
       value: s.cookie.slice(at + 1),
-      url: env.siteURL,
-      // studio sets __Host- cookies: Secure, path /, no domain. Chromium takes Secure on localhost.
+      // studio sets __Host- cookies: Secure, path /, host-only. CDP refuses a Secure cookie for an
+      // http URL, so it goes in for https://<site host>; cookies have no port, and Chromium sends
+      // Secure cookies to http://localhost (a secure context).
+      url: `https://${new URL(env.siteURL).hostname}`,
       secure: true,
       httpOnly: true,
       sameSite: "Lax",
