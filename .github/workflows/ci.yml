@@ -1,10 +1,10 @@
 # Fleet library CI (fleet-standard templates/library/public), fleet-workflows v0.0.2, stack node.
 #   lint   Biome, tsc, actionlint, zizmor
 #   unit   the Playwright image guard (node --test); no library code, so no coverage floor
-#   e2e    dispatch only (CI-E2E-01): the synthwerk-infra stack (profile vision) plus
-#          stack/compose.e2e.yaml and a synthwerk-widgets build, then the journeys in the
-#          Playwright image (pinned by digest). infra-ref and widgets-ref pick the commits under
-#          test: a branch, a tag or a full SHA; main by default
+#   e2e    dispatch only (CI-E2E-01): the synthwerk-infra stack (profiles vision and studio)
+#          plus stack/compose.e2e.yaml and a synthwerk-widgets build, then the journeys in the
+#          Playwright image (pinned by digest). infra-ref, widgets-ref and studio-ref pick the
+#          commits under test: a branch, a tag or a full SHA; main by default
 #   build  nothing to build: the journeys run from source (fleet.yml CI-BUILD-04)
 # Required check of the ruleset "main: checks required": conclusion.
 name: ci
@@ -25,6 +25,10 @@ on:
         default: main
       widgets-ref:
         description: synthwerk-widgets commit to build the widgets from (branch, tag or full SHA)
+        type: string
+        default: main
+      studio-ref:
+        description: synthwerk-studio commit to build studio and the public site from (branch, tag or full SHA)
         type: string
         default: main
 
@@ -97,20 +101,25 @@ jobs:
     outputs:
       infra: ${{ steps.check.outputs.infra }}
       widgets: ${{ steps.check.outputs.widgets }}
+      studio: ${{ steps.check.outputs.studio }}
     steps:
       - name: Check the refs under test
         id: check
         env:
           INFRA_REF: ${{ inputs.infra-ref }}
           WIDGETS_REF: ${{ inputs.widgets-ref }}
+          STUDIO_REF: ${{ inputs.studio-ref }}
         run: |
-          for ref in "$INFRA_REF" "$WIDGETS_REF"; do
+          for ref in "$INFRA_REF" "$WIDGETS_REF" "$STUDIO_REF"; do
             if ! [[ "$ref" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$ ]] || [[ "$ref" == *..* ]]; then
               echo "::error::not a branch, tag or SHA: $ref"; exit 1
             fi
           done
-          echo "infra=$INFRA_REF" >> "$GITHUB_OUTPUT"
-          echo "widgets=$WIDGETS_REF" >> "$GITHUB_OUTPUT"
+          {
+            echo "infra=$INFRA_REF"
+            echo "widgets=$WIDGETS_REF"
+            echo "studio=$STUDIO_REF"
+          } >> "$GITHUB_OUTPUT"
 
   # Fleet rule CI-E2E-01: e2e never runs on a PR, a push or a schedule; only by dispatch of
   # this workflow with e2e: true (or in a promotion preflight). The journeys are the product of
@@ -123,12 +132,12 @@ jobs:
     uses: VelimirMueller/fleet-workflows/.github/workflows/_ci-e2e.yml@v0.0.2
     with:
       stack: node
-      # Bring up the infra stack (profile vision) with the e2e overlay, build the widgets
-      # under test, copy the Zitadel secrets out, then run the journeys in the pinned
+      # Bring up the infra stack (profiles vision and studio) with the e2e overlay, build the
+      # widgets under test, copy the Zitadel secrets out, then run the journeys in the pinned
       # Playwright image. JUnit goes to e2e-junit.xml (CI-E2E-05). fetch takes a branch, a
       # tag or a full SHA (GitHub serves a commit by SHA); the summary names the commits.
       command: |
-        export E2E_ZITADEL_API_PORT=8090 COMPOSE_PROFILES=vision
+        export E2E_ZITADEL_API_PORT=8090 COMPOSE_PROFILES=vision,studio SYNTHWERK_STUDIO_SRC="$PWD/studio"
         checkout() {
           git init -q "$2" && git -C "$2" fetch -q --depth 1 "https://github.com/VelimirMueller/$1.git" "$3"
           git -C "$2" checkout -q --detach FETCH_HEAD
@@ -136,6 +145,7 @@ jobs:
         }
         checkout synthwerk-infra infra '${{ needs.refs.outputs.infra }}'
         checkout synthwerk-widgets widgets '${{ needs.refs.outputs.widgets }}'
+        checkout synthwerk-studio studio '${{ needs.refs.outputs.studio }}'
         (cd widgets && npx --yes pnpm@12.15.0 install --frozen-lockfile && npx --yes pnpm@12.15.0 build)
         infra/scripts/init-env.sh
         compose() { docker compose --project-directory infra -f infra/compose.yaml -f stack/compose.e2e.yaml "$@"; }
@@ -143,9 +153,11 @@ jobs:
         compose up --build --wait --wait-timeout 600
         scripts/stack-secrets.sh synthwerk
         # Zitadel access tokens carry the project id as audience, never synthwerk-api: the
-        # journeys sign in for real, so identity (widget token trade, apps) and llm take it.
+        # journeys sign in for real, so identity (widget token trade, apps, studio role check)
+        # and llm take it. studio serves the demo org as the public site (synthwerk#45).
         aud="$(jq -r .project_id .stack/studio-client.json)"
-        SYNTHWERK_IDENTITY_OIDC_AUDIENCE="$aud" SYNTHWERK_LLM_OIDC_AUDIENCE="$aud" compose up -d --wait identity llm
+        SYNTHWERK_IDENTITY_OIDC_AUDIENCE="$aud" SYNTHWERK_LLM_OIDC_AUDIENCE="$aud" \
+          SYNTHWERK_SITE_ORG_ID="$(cat .stack/site-org-id)" compose up -d --wait identity llm studio
         docker run --rm --network host --ipc=host -e CI=1 \
           -e PLAYWRIGHT_JUNIT_OUTPUT_FILE=e2e-junit.xml -e E2E_WIDGETS_DIST=/work/widgets/dist \
           -v "$PWD:/work" -w /work --user "$(id -u):$(id -g)" -e HOME=/tmp \
