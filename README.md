@@ -17,6 +17,8 @@ Status: draft, milestone M2. Plain README until the brand kit render (vm-brand) 
 | `tests/vision/vision-upload.spec.ts` | A photo from the vision eval set shows its primary label and alternatives in the real `<synthwerk-vision>`; signed out, no vision request (e2e#9). |
 | `tests/vision/vision-camera.spec.ts` | A photo from the Chromium fake camera gets labels, and the camera stops (e2e#9). |
 | `tests/site/request-audit.spec.ts` | Without consent, `/de`, `/en`, a published builder page and the six legal pages of the public site send every request to the site origin. Analytics loads only after the opt-in (synthwerk#45). |
+| `tests/site/site-demo.spec.ts` | The live demo sends nothing before a click; signed out it shows a sign-in link; a demo member gets a chat answer and a photo label. 40 parallel sends of one user: at most 5 pass, the rest get 429 before llm, and llm stores at most 5 answers (synthwerk#47). |
+| `tests/site/site-stats.spec.ts` | The public numbers (uptime, p95, answered chats) have exactly five aggregate fields and `Cache-Control: public, max-age=60`; the site shows them (synthwerk#47). |
 Users come by invite only (D-51). The invite mail is read from Mailpit (D-49).
 The chat journeys run against the fake provider: it echoes the message one word per
 piece (100 ms each), so no model is in the loop. The vision journeys use the real model
@@ -39,16 +41,21 @@ pnpm exec playwright install chromium
 pnpm stack:secrets          # copies the local IAM owner PAT, login-client PAT and studio client, writes the demo org id, all to .stack/
 # 4. identity and llm need the studio project id as the token audience; studio needs the
 #    site org (stack/compose.e2e.yaml)
+#    site demo needs its demo app (scripts/site-demo-app.ts) before studio starts
 aud="$(jq -r .project_id .stack/studio-client.json)"
+SYNTHWERK_IDENTITY_OIDC_AUDIENCE="$aud" SYNTHWERK_LLM_OIDC_AUDIENCE="$aud" COMPOSE_PROFILES=vision,studio \
+  docker compose -f ../synthwerk-infra/compose.yaml -f stack/compose.e2e.yaml up -d --wait identity llm
+node scripts/site-demo-app.ts   # writes .stack/site-demo-app-id
 SYNTHWERK_IDENTITY_OIDC_AUDIENCE="$aud" SYNTHWERK_LLM_OIDC_AUDIENCE="$aud" \
-  SYNTHWERK_SITE_ORG_ID="$(cat .stack/site-org-id)" COMPOSE_PROFILES=vision,studio \
+  SYNTHWERK_SITE_ORG_ID="$(cat .stack/site-org-id)" SYNTHWERK_SITE_DEMO_APP_ID="$(cat .stack/site-demo-app-id)" \
+  COMPOSE_PROFILES=vision,studio \
   docker compose -f ../synthwerk-infra/compose.yaml -f stack/compose.e2e.yaml up -d --wait identity llm studio
 pnpm test
 ```
 Settings (env): `E2E_EDGE_PORT` (8080), `E2E_ZITADEL_API_PORT` (8090), `E2E_MAILPIT_URL`
 (`http://127.0.0.1:8025`), `E2E_AUTH_DOMAIN` (`auth.localhost`), `E2E_HOST_PORT` (4174),
 `E2E_WIDGETS_DIST` (`../synthwerk-widgets/dist`), `E2E_SITE_PORT` (3001), `E2E_SITE_ANALYTICS_URL`
-(`https://analytics.e2e.test/script.js`, the value of the overlay). Keep the edge on 8080: with another
+(`https://analytics.e2e.test/script.js`, the value of the overlay), `E2E_IDENTITY_API_PORT` (8091, identity API for the demo app setup). Keep the edge on 8080: with another
 edge port the issuer `http://auth.localhost:<port>` is not reachable from the services. `.stack/` holds local
 secrets and is git-ignored. Never point the tests at dev or prd.
 ## CI
@@ -62,8 +69,10 @@ CI-E2E-01): Actions > ci > Run workflow with e2e: true. The ruleset requires `ga
 - `src/host` test host page for the widgets, widget fixtures
 - `src/identity` identity calls: membership wait, widget app
 - `src/studio` studio BFF sign-in without a browser, page builder calls (create, publish, delete)
+- `src/site` site demo helpers: demo member, session cookie, demo chat call, llm export count
 - `src/support` HTTP, Mailpit, TOTP
-- `stack/compose.e2e.yaml` overlay on the infra stack (Zitadel API port, llm for the chat journeys, studio site org and analytics URL)
+- `stack/compose.e2e.yaml` overlay on the infra stack (Zitadel and identity API ports, llm for the chat journeys, studio site org, demo app and analytics URL)
+- `scripts/` local secrets (`stack-secrets.sh`), the site demo app (`site-demo-app.ts`)
 - `tests/` specs (never next to source); `tests/fixtures/vision` the eval-set photo
 ## License
 MIT

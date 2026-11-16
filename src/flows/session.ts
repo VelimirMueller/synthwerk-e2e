@@ -7,8 +7,11 @@ import { exchange, studioScope, type Tokens } from "./oidc.ts";
 
 export type SignedIn = { userID: string; userName: string; tokens: Tokens };
 
-/** A user with a password and a verified TOTP factor (made directly, no invite). */
-export type TOTPUser = { userID: string; userName: string; password: string; secret: string };
+/**
+ * A user with a password and a verified TOTP factor (made directly, no invite). usedStep: the
+ * last 30 s TOTP step a sign-in used; Zitadel refuses a code of a used step.
+ */
+export type TOTPUser = { userID: string; userName: string; password: string; secret: string; usedStep?: number };
 
 export async function totpUser(opts: { org: string; roles: string[]; tag: string }): Promise<TOTPUser> {
   const password = `Sw-e2e-${randomBytes(4).toString("hex")}-Pw!`;
@@ -27,9 +30,18 @@ export async function finishAuthRequest(authRequest: string, user: TOTPUser): Pr
     checks: { user: { loginName: user.userName }, password: { password: user.password } },
   });
   // Zitadel takes one 30 s step of skew: the next step's code differs from the enrolment code.
+  // A second sign-in of the same user waits until the step after the used one starts.
+  const STEP = 30_000;
+  let step = Math.floor((Date.now() + STEP) / STEP);
+  const used = user.usedStep;
+  if (used !== undefined && step <= used) {
+    step = used + 1;
+    await new Promise((resolve) => setTimeout(resolve, (step - 1) * STEP - Date.now() + 500));
+  }
   const checked = await sessionAPI<{ sessionToken: string }>("PATCH", `/v2/sessions/${session.sessionId}`, {
-    checks: { totp: { code: totp(user.secret, Date.now() + 30_000) } },
+    checks: { totp: { code: totp(user.secret, step * STEP) } },
   });
+  user.usedStep = step;
   const done = await sessionAPI<{ callbackUrl: string }>("POST", `/v2/oidc/auth_requests/${authRequest}`, {
     session: { sessionId: session.sessionId, sessionToken: checked.sessionToken },
   });
@@ -50,8 +62,12 @@ export function authRequestOf(location: string | undefined, status: number): str
  * sign-in itself.
  */
 export async function signInWithTOTP(opts: { org: string; roles: string[]; tag: string }): Promise<SignedIn> {
+  return signInUser(await totpUser(opts));
+}
+
+/** Signs an existing TOTP user in without a browser and returns the Zitadel tokens. */
+export async function signInUser(user: TOTPUser): Promise<SignedIn> {
   const sc = studioClient();
-  const user = await totpUser(opts);
   const verifier = randomBytes(48).toString("base64url");
   const q = new URLSearchParams({
     client_id: sc.client_id,

@@ -14,6 +14,12 @@ export const env = {
   },
   /** Zitadel API for test setup, published by stack/compose.e2e.yaml (not through the WAF). */
   zitadelAPI: `http://127.0.0.1:${process.env.E2E_ZITADEL_API_PORT ?? "8090"}`,
+  /**
+   * identity API for test setup, published by stack/compose.e2e.yaml (not through the WAF):
+   * the site demo app has the origin http://localhost:<site port>, and the edge WAF blocks a
+   * localhost URL in a request body (CRS 934110).
+   */
+  identityAPI: `http://127.0.0.1:${process.env.E2E_IDENTITY_API_PORT ?? "8091"}`,
   /** Mailpit API (D-49). */
   mailpit: process.env.E2E_MAILPIT_URL ?? "http://127.0.0.1:8025",
   /** Studio redirect URI registered by the bootstrap. Nothing listens there: the test catches it. */
@@ -68,6 +74,11 @@ export function loginPAT(): string {
 /** Zitadel id of the org whose builder pages the public site shows (scripts/stack-secrets.sh). */
 export function siteOrgID(): string {
   return readFileSync(join(env.secretsDir, "site-org-id"), "utf8").trim();
+}
+
+/** The demo app of the site demo (scripts/site-demo-app.ts, NUXT_SITE_DEMO_APP_ID of studio). */
+export function siteDemoAppID(): string {
+  return readFileSync(join(env.secretsDir, "site-demo-app-id"), "utf8").trim();
 }
 
 export function studioClient(): StudioClient {

@@ -27,6 +27,15 @@ services:
       app:
         aliases: [auth.localhost]
 
+  # The site demo (synthwerk#47) needs an app in the demo org that allows the site origin
+  # http://localhost:3001. The edge WAF blocks a localhost URL in a request body (CRS 934110),
+  # so scripts/site-demo-app.ts creates it on this port, like the Zitadel setup above.
+  identity:
+    ports:
+      - "127.0.0.1:${E2E_IDENTITY_API_PORT:-8091}:8080"
+    networks:
+      edge: {}
+
   # The chat journeys sign in for real (passkey -> Zitadel -> JWT), so the gateway
   # must trust the real issuer even when infra/.env still points it at the stack
   # test issuer (tests/stack/issuer.sh setup). The audience is the studio project id
@@ -50,11 +59,16 @@ services:
   # in a second step, like the audience above:
   #   SYNTHWERK_SITE_ORG_ID="$(cat .stack/site-org-id)" \
   #     docker compose -f ../synthwerk-infra/compose.yaml -f stack/compose.e2e.yaml up -d --wait studio
-  # Empty: /api/site answers 503. The analytics script is a third-party URL that nothing serves:
+  # Empty: /api/site answers 503.
+  # The live demo (synthwerk#47, tests/site/site-demo.spec.ts) needs the demo app of
+  # scripts/site-demo-app.ts: SYNTHWERK_SITE_DEMO_APP_ID="$(cat .stack/site-demo-app-id)".
+  # Empty: the image demo answers 503 demo_not_configured. The chat demo needs no app.
+  # The analytics script is a third-party URL that nothing serves:
   # the journey answers it itself and proves it loads only after the opt-in.
   studio:
     environment:
       NUXT_SITE_ORG_ID: ${SYNTHWERK_SITE_ORG_ID:-}
+      NUXT_SITE_DEMO_APP_ID: ${SYNTHWERK_SITE_DEMO_APP_ID:-}
       NUXT_PUBLIC_SITE_ANALYTICS_SCRIPT_URL: https://analytics.e2e.test/script.js
       NUXT_PUBLIC_SITE_ANALYTICS_WEBSITE_ID: e2e-site
 
