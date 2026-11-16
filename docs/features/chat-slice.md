@@ -46,3 +46,4 @@ updated: 2026-10-30
 | 2026-10-29 | Quota journey (synthwerk#33). |
 | 2026-10-30 | The journeys use the real widget on a customer page; `/stub` is no longer used; origin journey (synthwerk-e2e#8). |
 | 2026-10-30 | The origin journey asserts the not-allowed text (synthwerk-widgets#41). CI takes `infra-ref` and `widgets-ref`. |
+| 2026-11-16 | `identity()` and `createWidgetApp()` take an optional base URL: the identity API port for setup bodies that the WAF refuses (synthwerk#47). |

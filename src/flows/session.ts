@@ -50,8 +50,12 @@ export function authRequestOf(location: string | undefined, status: number): str
  * sign-in itself.
  */
 export async function signInWithTOTP(opts: { org: string; roles: string[]; tag: string }): Promise<SignedIn> {
+  return signInUser(await totpUser(opts));
+}
+
+/** Signs an existing TOTP user in without a browser and returns the Zitadel tokens. */
+export async function signInUser(user: TOTPUser): Promise<SignedIn> {
   const sc = studioClient();
-  const user = await totpUser(opts);
   const verifier = randomBytes(48).toString("base64url");
   const q = new URLSearchParams({
     client_id: sc.client_id,

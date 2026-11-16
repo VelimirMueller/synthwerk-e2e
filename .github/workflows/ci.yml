@@ -155,9 +155,14 @@ jobs:
         # Zitadel access tokens carry the project id as audience, never synthwerk-api: the
         # journeys sign in for real, so identity (widget token trade, apps, studio role check)
         # and llm take it. studio serves the demo org as the public site (synthwerk#45).
+        # The site demo (synthwerk#47) needs an app in the demo org with the site origin: identity
+        # must take the audience first, then studio starts with the app id.
         aud="$(jq -r .project_id .stack/studio-client.json)"
+        SYNTHWERK_IDENTITY_OIDC_AUDIENCE="$aud" SYNTHWERK_LLM_OIDC_AUDIENCE="$aud" compose up -d --wait identity llm
+        node scripts/site-demo-app.ts
         SYNTHWERK_IDENTITY_OIDC_AUDIENCE="$aud" SYNTHWERK_LLM_OIDC_AUDIENCE="$aud" \
-          SYNTHWERK_SITE_ORG_ID="$(cat .stack/site-org-id)" compose up -d --wait identity llm studio
+          SYNTHWERK_SITE_ORG_ID="$(cat .stack/site-org-id)" SYNTHWERK_SITE_DEMO_APP_ID="$(cat .stack/site-demo-app-id)" \
+          compose up -d --wait identity llm studio
         docker run --rm --network host --ipc=host -e CI=1 \
           -e PLAYWRIGHT_JUNIT_OUTPUT_FILE=e2e-junit.xml -e E2E_WIDGETS_DIST=/work/widgets/dist \
           -v "$PWD:/work" -w /work --user "$(id -u):$(id -g)" -e HOME=/tmp \

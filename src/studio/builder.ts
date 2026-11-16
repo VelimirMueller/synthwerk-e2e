@@ -1,5 +1,5 @@
 import { env } from "../config/env.ts";
-import { authRequestOf, finishAuthRequest, totpUser } from "../flows/session.ts";
+import { authRequestOf, finishAuthRequest, type TOTPUser, totpUser } from "../flows/session.ts";
 import { call, type Reply } from "../support/http.ts";
 import { orgID } from "../zitadel/admin.ts";
 
@@ -7,7 +7,7 @@ import { orgID } from "../zitadel/admin.ts";
 export type StudioSession = { cookie: string; csrf: string; org: string };
 
 /** One call to studio from Node: loopback address, Host and Origin of the studio origin. */
-function studio(
+export function studio(
   path: string,
   opts: { method?: string; cookie?: string; headers?: Record<string, string>; body?: unknown } = {},
 ) {
@@ -39,7 +39,11 @@ function cookieOf(res: Reply, name: string): string {
  * so the token carries mfa), then studio /api/auth/callback opens the session.
  */
 export async function studioSignIn(role: string, tag: string): Promise<StudioSession> {
-  const user = await totpUser({ org: await orgID("demo"), roles: [role], tag });
+  return studioSignInAs(await totpUser({ org: await orgID("demo"), roles: [role], tag }));
+}
+
+/** Signs an existing TOTP user into studio (same steps as studioSignIn). */
+export async function studioSignInAs(user: TOTPUser): Promise<StudioSession> {
   const login = await studio("/api/auth/login");
   const loginCookie = cookieOf(login, "__Host-sw_login");
   if (login.status !== 302 || !login.location || !loginCookie) {

@@ -5,9 +5,18 @@ import { orgID } from "../zitadel/admin.ts";
 
 export type WidgetApp = { id: string; org: string; origins: string[] };
 
-/** One call to identity through the edge with a user access token. */
-export async function identity<T>(token: string, method: string, path: string, body?: unknown) {
-  const res = await call(`${env.edge}/identity${path}`, {
+/**
+ * One call to identity with a user access token: through the edge by default, or straight to
+ * the identity API port of the overlay (base env.identityAPI) for a body the WAF refuses.
+ */
+export async function identity<T>(
+  token: string,
+  method: string,
+  path: string,
+  body?: unknown,
+  base = `${env.edge}/identity`,
+) {
+  const res = await call(`${base}${path}`, {
     method,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -46,24 +55,27 @@ export async function demoMember(role: string, tag: string): Promise<SignedIn> {
 /**
  * The app a customer registers for the widgets (identity createApp): a fresh demo owner
  * registers the host page origins. An app with the same origins from an earlier run on
- * the same stack is reused (the free plan allows 3 apps per org).
+ * the same stack is reused (the free plan allows 3 apps per org). base: see identity().
  */
-export async function createWidgetApp(origins: string[]): Promise<WidgetApp> {
+export async function createWidgetApp(origins: string[], base?: string): Promise<WidgetApp> {
   const owner = await demoMember("owner", "app-owner");
   const token = owner.tokens.access_token;
   const org = await waitForMember(token);
 
   type App = { id: string; allowed_origins: string[] };
-  const list = await identity<{ items: App[] }>(token, "GET", `/v1/orgs/${org}/apps?limit=100`);
+  const list = await identity<{ items: App[] }>(token, "GET", `/v1/orgs/${org}/apps?limit=100`, undefined, base);
   if (list.status !== 200) throw new Error(`identity listApps: ${list.status} ${list.body.slice(0, 300)}`);
   const same = (a: App) => [...a.allowed_origins].sort().join(" ") === [...origins].sort().join(" ");
   const found = list.json().items.find(same);
   if (found) return { id: found.id, org, origins };
 
-  const made = await identity<{ id: string }>(token, "POST", `/v1/orgs/${org}/apps`, {
-    name: `E2E host ${Date.now().toString(36)}`,
-    allowed_origins: origins,
-  });
+  const made = await identity<{ id: string }>(
+    token,
+    "POST",
+    `/v1/orgs/${org}/apps`,
+    { name: `E2E host ${Date.now().toString(36)}`, allowed_origins: origins },
+    base,
+  );
   if (made.status !== 201) throw new Error(`identity createApp: ${made.status} ${made.body.slice(0, 300)}`);
   return { id: made.json().id, org, origins };
 }
