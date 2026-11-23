@@ -74,7 +74,7 @@ jobs:
     if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' }}
     permissions:
       contents: read
-    uses: VelimirMueller/fleet-workflows/.github/workflows/_ci-lint.yml@v0.0.2
+    uses: VelimirMueller/fleet-workflows/.github/workflows/_ci-lint.yml@v0.0.4
     with:
       stack: node
 
@@ -83,7 +83,7 @@ jobs:
     if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' }}
     permissions:
       contents: read
-    uses: VelimirMueller/fleet-workflows/.github/workflows/_ci-unit.yml@v0.0.2
+    uses: VelimirMueller/fleet-workflows/.github/workflows/_ci-unit.yml@v0.0.4
     with:
       stack: node
       command: pnpm test:guard
@@ -129,7 +129,7 @@ jobs:
     if: ${{ !failure() && !cancelled() && github.event_name == 'workflow_dispatch' && inputs.e2e }}
     permissions:
       contents: read
-    uses: VelimirMueller/fleet-workflows/.github/workflows/_ci-e2e.yml@v0.0.2
+    uses: VelimirMueller/fleet-workflows/.github/workflows/_ci-e2e.yml@v0.0.4
     with:
       stack: node
       # Bring up the infra stack (profiles vision and studio) with the e2e overlay, build the
@@ -174,7 +174,7 @@ jobs:
     if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' }}
     permissions:
       contents: read
-    uses: VelimirMueller/fleet-workflows/.github/workflows/_ci-build.yml@v0.0.2
+    uses: VelimirMueller/fleet-workflows/.github/workflows/_ci-build.yml@v0.0.4
     with:
       stack: generic
       command: echo "Nothing to build, the journeys run from source (fleet.yml exception CI-BUILD-04)."
